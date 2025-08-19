@@ -7,13 +7,13 @@
 extern "C" {
 #endif
 
-// Resource storage modes
-enum {
-    MTLResourceStorageModeShared = 0,
-    MTLResourceStorageModeManaged = 1,
-    MTLResourceStorageModePrivate = 2,
-    MTLResourceStorageModeMemoryless = 3
-};
+// Resource storage modes - use values that won't conflict
+typedef enum {
+    MLX_MTLResourceStorageModeShared = 0,
+    MLX_MTLResourceStorageModeManaged = 1,
+    MLX_MTLResourceStorageModePrivate = 2,
+    MLX_MTLResourceStorageModeMemoryless = 3
+} MLX_MTLResourceStorageMode;
 
 // Device functions
 void* mtlCreateSystemDefaultDevice();

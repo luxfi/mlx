@@ -1,0 +1,76 @@
+name: Test MLX Go Bindings
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-macos-arm64:
+    runs-on: macos-14  # M1 Mac runners
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: Install dependencies
+      run: |
+        # Xcode Command Line Tools should already be installed
+        xcode-select --print-path
+        
+    - name: Run tests
+      run: |
+        CGO_ENABLED=1 go test -v -timeout 30s ./...
+      env:
+        GITHUB_ACTIONS: true  # Skip GPU tests that don't work in CI
+        
+    - name: Run benchmarks
+      run: |
+        CGO_ENABLED=1 go test -bench=. -benchtime=1s ./...
+      env:
+        GITHUB_ACTIONS: true
+
+  test-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+        
+    - name: Run tests (CPU only)
+      run: |
+        CGO_ENABLED=1 go test -v -timeout 30s ./...
+      env:
+        MLX_BACKEND: cpu  # Force CPU backend
+        
+  test-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+        
+    - name: Set up MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+      
+    - name: Run tests (CPU only)
+      run: |
+        set CGO_ENABLED=1
+        go test -v -timeout 30s ./...
+      env:
+        MLX_BACKEND: cpu  # Force CPU backend

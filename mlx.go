@@ -193,19 +193,39 @@ func (c *Context) SetBackend(backend Backend) error {
 		if !hasMetalSupport() {
 			return ErrNoGPU
 		}
+		c.backend = Metal
+		c.device = &Device{
+			Type:   Metal,
+			ID:     0,
+			Name:   getMetalDeviceName(),
+			Memory: getMetalMemory(),
+		}
 	case CUDA:
 		if !hasCUDASupport() {
 			return ErrNoGPU
 		}
-	case CPU, Auto:
-		// Always available
+		c.backend = CUDA
+		c.device = &Device{
+			Type:   CUDA,
+			ID:     0,
+			Name:   getCUDADeviceName(),
+			Memory: getCUDAMemory(),
+		}
+	case CPU:
+		c.backend = CPU
+		c.device = &Device{
+			Type:   CPU,
+			ID:     0,
+			Name:   "CPU",
+			Memory: getSystemMemory(),
+		}
+	case Auto:
+		// Detect without holding lock
+		c.mu.Unlock()
+		c.detectBackend()
+		c.mu.Lock()
 	default:
 		return ErrInvalidBackend
-	}
-	
-	c.backend = backend
-	if backend == Auto {
-		c.detectBackend()
 	}
 	
 	return nil

@@ -3,8 +3,10 @@
 package mlx
 
 /*
+#cgo CFLAGS: -x objective-c
 #cgo LDFLAGS: -framework Metal -framework CoreGraphics -framework Foundation
-#include "metal/mtl.h"
+#include "metal/mtl_bridge.h"
+#include <stdlib.h>
 */
 import "C"
 import (
@@ -143,18 +145,18 @@ func (md *MetalDevice) MatMul(a, b []float32, m, n, k int) ([]float32, error) {
 	aBuffer := C.mtlNewBufferWithBytes(md.device, 
 		unsafe.Pointer(&a[0]), 
 		C.ulong(len(a)*4), 
-		C.MTLResourceStorageModeShared)
+		C.int(0)) // MTLResourceStorageModeShared = 0
 	
 	bBuffer := C.mtlNewBufferWithBytes(md.device,
 		unsafe.Pointer(&b[0]),
 		C.ulong(len(b)*4),
-		C.MTLResourceStorageModeShared)
+		C.int(0)) // MTLResourceStorageModeShared = 0
 	
 	result := make([]float32, m*n)
 	cBuffer := C.mtlNewBufferWithBytes(md.device,
 		unsafe.Pointer(&result[0]),
 		C.ulong(len(result)*4),
-		C.MTLResourceStorageModeShared)
+		C.int(0)) // MTLResourceStorageModeShared = 0
 	
 	// Create command buffer and encoder
 	cmdBuffer := C.mtlCommandBuffer(md.queue)
@@ -195,18 +197,18 @@ func (md *MetalDevice) Add(a, b []float32) ([]float32, error) {
 	aBuffer := C.mtlNewBufferWithBytes(md.device,
 		unsafe.Pointer(&a[0]),
 		C.ulong(len(a)*4),
-		C.MTLResourceStorageModeShared)
+		C.int(0)) // MTLResourceStorageModeShared = 0
 	
 	bBuffer := C.mtlNewBufferWithBytes(md.device,
 		unsafe.Pointer(&b[0]),
 		C.ulong(len(b)*4),
-		C.MTLResourceStorageModeShared)
+		C.int(0)) // MTLResourceStorageModeShared = 0
 	
 	result := make([]float32, len(a))
 	cBuffer := C.mtlNewBufferWithBytes(md.device,
 		unsafe.Pointer(&result[0]),
 		C.ulong(len(result)*4),
-		C.MTLResourceStorageModeShared)
+		C.int(0)) // MTLResourceStorageModeShared = 0
 	
 	// Create command buffer and encoder
 	cmdBuffer := C.mtlCommandBuffer(md.queue)

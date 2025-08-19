@@ -8,7 +8,7 @@ import (
 )
 
 func TestMetalDevice(t *testing.T) {
-	md, err := InitMetal()
+	_, err := InitMetal()
 	if err != nil {
 		t.Skipf("Metal not available: %v", err)
 	}
