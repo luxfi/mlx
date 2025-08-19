@@ -1,9 +1,13 @@
+// +build cgo
+
 // Package mlx provides Go bindings for the MLX machine learning framework.
 // MLX is an array framework for machine learning on Apple silicon and beyond.
 //
+// IMPORTANT: This package REQUIRES CGO to function. MLX is a C++ library
+// and cannot work without CGO. Build with CGO_ENABLED=1.
+//
 // This package wraps the C++ MLX library to provide GPU acceleration for
-// high-performance computing tasks like order matching, matrix operations,
-// and neural network inference.
+// high-performance computing tasks like matrix operations and neural network inference.
 package mlx
 
 import (
