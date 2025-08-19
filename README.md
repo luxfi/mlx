@@ -12,8 +12,9 @@ brought to you by Apple machine learning research.
 Some key features of MLX include:
 
  - **Familiar APIs**: MLX has a Python API that closely follows NumPy. MLX
-   also has fully featured C++, [C](https://github.com/ml-explore/mlx-c), and
-   [Swift](https://github.com/ml-explore/mlx-swift/) APIs, which closely mirror
+   also has fully featured C++, [C](https://github.com/ml-explore/mlx-c),
+   [Swift](https://github.com/ml-explore/mlx-swift/), and
+   [Go](go/README.md) APIs, which closely mirror
    the Python API. MLX has higher-level packages like `mlx.nn` and
    `mlx.optimizers` with APIs that closely follow PyTorch to simplify building
    more complex models.
@@ -68,6 +69,8 @@ in the documentation.
 
 ## Installation
 
+### Python
+
 MLX is available on [PyPI](https://pypi.org/project/mlx/). To install MLX on
 macOS, run:
 
@@ -86,6 +89,26 @@ To install a CPU-only Linux package, run:
 ```bash
 pip install mlx[cpu]
 ```
+
+### Go
+
+MLX has official Go bindings for high-performance computing. To install:
+
+```bash
+go get github.com/luxfi/mlx@latest
+```
+
+Or with specific version:
+```bash
+go get github.com/luxfi/mlx@v0.1.0
+```
+
+For GPU support, ensure CGO is enabled:
+```bash
+CGO_ENABLED=1 go build
+```
+
+See the [Go documentation](go/README.md) for detailed usage.
 
 Checkout the
 [documentation](https://ml-explore.github.io/mlx/build/html/install.html#)
