@@ -1,15 +1,28 @@
 // +build cgo
 
 // Package mlx provides Go bindings for the MLX machine learning framework.
-// MLX is an array framework for machine learning on Apple silicon and beyond.
+// MLX is an array framework for machine learning with multiple backend support:
 //
-// IMPORTANT: This package REQUIRES CGO to function. MLX is a C++ library
-// and cannot work without CGO. Build with CGO_ENABLED=1.
+// - Metal: Apple Silicon GPUs (macOS)
+// - CUDA: NVIDIA GPUs (Linux/Windows)
+// - CPU: Fallback with SIMD optimizations (all platforms)
 //
-// This package wraps the C++ MLX library to provide GPU acceleration for
-// high-performance computing tasks like matrix operations and neural network inference.
+// The package automatically detects and uses the best available backend.
+// Build with CGO_ENABLED=1 and appropriate build tags for GPU support:
+//
+// - cuda: Enable CUDA backend (requires CUDA toolkit)
+// - metal: Enable Metal backend (automatic on macOS)
 package mlx
 
+/*
+#cgo CXXFLAGS: -std=c++17 -O3
+#cgo darwin LDFLAGS: -framework Metal -framework Foundation -framework CoreGraphics
+#cgo linux LDFLAGS: -lm -ldl
+#cgo windows LDFLAGS: -lm
+#include "mlx_c_api.h"
+#include <stdlib.h>
+*/
+import "C"
 import (
 	"errors"
 	"fmt"
