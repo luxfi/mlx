@@ -127,6 +127,7 @@ All files reference the same knowledge base. Updates here propagate to all AI sy
 - Created `mlx_onnx.go` with C bindings
 - Automatic detection on Windows
 - Full API compatibility
+- Training support documented (ORTModule, on-device training, transfer learning)
 
 ### 2. Pre-compiled Binary System
 - Release workflow: `build-release.yml`
@@ -136,8 +137,11 @@ All files reference the same knowledge base. Updates here propagate to all AI sy
 - Test workflows download binaries first
 
 ### 3. Documentation
-- `ONNX.md`: Complete Windows setup guide
-- `BINARIES.md`: Binary installation guide  
+- `ONNX.md`: Complete Windows setup guide with training support
+  - Large model training with ORTModule
+  - On-device training for edge devices
+  - Transfer learning examples
+- `BINARIES.md`: Binary installation guide
 - `README_GO.md`: Updated with ONNX instructions
 - `PLATFORM_SUPPORT.md`: Platform compatibility matrix
 
