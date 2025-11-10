@@ -127,23 +127,104 @@ MLX automatically selects backends in this order:
 |---------|----------|----------|-------------|
 | Metal | macOS ARM64 | Training/Inference | Excellent |
 | CUDA | Linux/Windows | Training/Inference | Excellent |
-| ONNX | Windows | Inference Only | Very Good |
+| ONNX | Windows | Training/Inference | Very Good |
 | MLX CPU | All | Training/Inference | Good |
 | CPU Fallback | All | Testing Only | Limited |
 
+**Note**: ONNX Runtime supports both training and inference:
+- **Large Model Training**: Via ORTModule (PyTorch integration)
+- **On-Device Training**: Fine-tuning on edge devices
+- **Transfer Learning**: Update specific layers locally
+
 ## ONNX Runtime Features
 
-✅ Supported:
-- Inference with pre-trained models
-- CPU execution
-- GPU execution (with CUDA/DirectML)
-- Model optimization
-- Quantization
+✅ Fully Supported:
+- **Training**: ORTModule for large models, on-device training
+- **Inference**: Pre-trained model execution
+- **CPU execution**: Optimized kernels
+- **GPU execution**: CUDA, DirectML, ROCm
+- **Model optimization**: Graph optimizations
+- **Quantization**: INT8, FP16 support
+- **Transfer Learning**: Fine-tune specific layers
 
-❌ Not supported via MLX API:
-- Training (inference only)
+⚠️ Limited via MLX API (use native ONNX Runtime API for full features):
 - Custom operators
 - Model export
+- Advanced training options
+
+## Training with ONNX Runtime
+
+### Large Model Training with ORTModule
+
+ONNX Runtime provides ORTModule for accelerating PyTorch training:
+
+```python
+import torch
+from torch_ort import ORTModule
+
+# Wrap your PyTorch model
+model = MyModel()
+model = ORTModule(model)  # Enable ONNX Runtime acceleration
+
+# Train normally
+for data, labels in dataloader:
+    outputs = model(data)
+    loss = criterion(outputs, labels)
+    loss.backward()
+    optimizer.step()
+```
+
+**Benefits**:
+- Faster training (often 1.3-2x speedup)
+- Memory optimization
+- Mixed precision support
+- Minimal code changes
+
+### On-Device Training
+
+Fine-tune models directly on edge devices:
+
+```python
+import onnxruntime.training as ort_training
+
+# Load training artifacts
+trainer = ort_training.Trainer(
+    'training_model.onnx',
+    'checkpoint.ckpt',
+    'optimizer.onnx'
+)
+
+# Train on device-specific data
+for batch in local_data:
+    loss = trainer.train_step(batch)
+    
+# Save updated model
+trainer.save_checkpoint('updated_model.ckpt')
+```
+
+**Use Cases**:
+- Mobile device personalization
+- Privacy-sensitive applications (data stays on device)
+- Edge AI with local adaptation
+- Federated learning
+
+### Transfer Learning
+
+Update specific layers while keeping others frozen:
+
+```python
+# Prepare training artifacts (offline)
+from onnxruntime.training import artifacts
+
+artifacts.generate_artifacts(
+    model='pretrained_model.onnx',
+    requires_grad=['classifier.weight', 'classifier.bias'],  # Only train these
+    loss='CrossEntropyLoss',
+    optimizer='AdamW'
+)
+
+# Deploy to device and fine-tune
+```
 
 ## Converting Models to ONNX
 
