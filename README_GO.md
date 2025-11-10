@@ -5,8 +5,9 @@ Official Go bindings for the MLX machine learning framework with multi-backend s
 ## Features
 
 - **Multi-Backend Support**: Automatically detects and uses the best available backend
-  - **Metal**: Apple Silicon GPU acceleration (M1/M2/M3)
+  - **Metal**: Apple Silicon GPU acceleration (M1/M2/M3/M4)
   - **CUDA**: NVIDIA GPU acceleration (Linux/Windows)
+  - **ONNX**: ONNX Runtime fallback (Windows recommended)
   - **CPU**: Optimized fallback for all platforms
 
 - **100% Test Coverage**: All features tested, no stubs or skips
@@ -26,7 +27,24 @@ go get github.com/luxfi/mlx@latest
 - Platform-specific requirements:
   - **macOS**: Xcode Command Line Tools
   - **Linux**: gcc/g++ and build-essential
-  - **Windows**: MinGW-w64 or MSVC
+  - **Windows**: ONNX Runtime (recommended) or MinGW-w64
+
+### Windows Users
+
+For the best experience on Windows, use ONNX Runtime instead of MLX:
+
+```bash
+# Download ONNX Runtime
+curl -LO https://github.com/microsoft/onnxruntime/releases/download/v1.17.0/onnxruntime-win-x64-1.17.0.zip
+unzip onnxruntime-win-x64-1.17.0.zip -d onnxruntime
+
+# Build with ONNX support
+set CGO_ENABLED=1
+set MLX_BACKEND=onnx
+go build
+```
+
+See [ONNX.md](ONNX.md) for complete Windows setup instructions.
 
 ## Quick Start
 

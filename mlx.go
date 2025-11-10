@@ -46,6 +46,8 @@ const (
 	Metal
 	// CUDA uses NVIDIA CUDA GPU acceleration
 	CUDA
+	// ONNX uses ONNX Runtime (Windows fallback)
+	ONNX
 	// Auto automatically selects the best available backend
 	Auto
 )
@@ -59,6 +61,8 @@ func (b Backend) String() string {
 		return "Metal"
 	case CUDA:
 		return "CUDA"
+	case ONNX:
+		return "ONNX"
 	case Auto:
 		return "Auto"
 	default:
@@ -150,6 +154,8 @@ func init() {
 			DefaultContext.SetBackend(Metal)
 		case "cuda":
 			DefaultContext.SetBackend(CUDA)
+		case "onnx":
+			DefaultContext.SetBackend(ONNX)
 		case "auto":
 			DefaultContext.detectBackend()
 		default:
@@ -195,6 +201,18 @@ func (c *Context) detectBackend() {
 		}
 	}
 	
+	// Check for ONNX Runtime on Windows
+	if runtime.GOOS == "windows" && detectONNXBackend() {
+		c.backend = ONNX
+		c.device = &Device{
+			Type:   ONNX,
+			ID:     0,
+			Name:   "ONNX Runtime " + getONNXVersion(),
+			Memory: getSystemMemory(),
+		}
+		return
+	}
+
 	// Fall back to CPU
 	c.backend = CPU
 	c.device = &Device{
@@ -244,6 +262,17 @@ func (c *Context) SetBackend(backend Backend) error {
 			Type:   CPU,
 			ID:     0,
 			Name:   "CPU",
+			Memory: getSystemMemory(),
+		}
+	case ONNX:
+		if !hasONNXSupport() {
+			return fmt.Errorf("ONNX Runtime not available")
+		}
+		c.backend = ONNX
+		c.device = &Device{
+			Type:   ONNX,
+			ID:     0,
+			Name:   "ONNX Runtime " + getONNXVersion(),
 			Memory: getSystemMemory(),
 		}
 	case Auto:
