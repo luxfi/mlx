@@ -91,7 +91,9 @@ add_library(mlx)
 # Supress warnings: note: parameter passing for argument of type
 # ‘std::pair<float, float>’ when C++17 is enabled changed to match C++14 in GCC
 # 10.1
-target_compile_options(mlx PRIVATE -Wno-psabi)
+if(NOT MSVC)
+  target_compile_options(mlx PRIVATE -Wno-psabi)
+endif()
 
 if(MLX_BUILD_CUDA)
   enable_language(CUDA)
