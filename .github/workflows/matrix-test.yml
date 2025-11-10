@@ -60,27 +60,59 @@ jobs:
       if: runner.os == 'macOS'
       run: |
         xcode-select --print-path
-    
+
+    - name: Build MLX (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        echo "=== Building MLX C++ library ==="
+        mkdir -p build && cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DMLX_BUILD_TESTS=OFF -DMLX_BUILD_EXAMPLES=OFF -DMLX_BUILD_PYTHON_BINDINGS=OFF -DMLX_BUILD_METAL=ON
+        make -j$(sysctl -n hw.ncpu) mlx
+        mkdir -p ../lib && cp libmlx.a ../lib/
+
     # Linux setup
     - name: Install Linux dependencies
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc g++
+        sudo apt-get install -y build-essential gcc g++ cmake
         # Check for NVIDIA GPU (won't exist in GitHub Actions)
         if command -v nvidia-smi &> /dev/null; then
           echo "CUDA available"
         else
           echo "No CUDA available - using CPU backend"
         fi
-    
+
+    - name: Build MLX (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        echo "=== Building MLX C++ library ==="
+        mkdir -p build && cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DMLX_BUILD_TESTS=OFF -DMLX_BUILD_EXAMPLES=OFF -DMLX_BUILD_PYTHON_BINDINGS=OFF -DMLX_BUILD_METAL=OFF
+        make -j$(nproc) mlx
+        mkdir -p ../lib && cp libmlx.a ../lib/
+
     # Windows setup
     - name: Install Windows dependencies
       if: runner.os == 'Windows'
       uses: egor-tensin/setup-mingw@v2
       with:
         platform: x64
-    
+
+    - name: Install CMake (Windows)
+      if: runner.os == 'Windows'
+      run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+
+    - name: Build MLX (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        echo "=== Building MLX C++ library ==="
+        mkdir -p build && cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DMLX_BUILD_TESTS=OFF -DMLX_BUILD_EXAMPLES=OFF -DMLX_BUILD_PYTHON_BINDINGS=OFF -DMLX_BUILD_METAL=OFF -G "MinGW Makefiles"
+        cmake --build . --target mlx -j
+        mkdir -p ../lib && cp libmlx.a ../lib/
+
     # Run tests
     - name: Run tests
       shell: bash
