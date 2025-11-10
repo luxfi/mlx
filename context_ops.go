@@ -242,3 +242,36 @@ func (c *Context) FreeStream(s *Stream) {
 		s.handle = nil
 	}
 }
+// FromSlice creates an array from a Go slice
+func (c *Context) FromSlice(data []float32, shape []int, dtype Dtype) *Array {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	cData := (*C.float)(unsafe.Pointer(&data[0]))
+	cShape := (*C.int)(unsafe.Pointer(&shape[0]))
+	handle := C.mlx_from_slice(cData, C.int(len(data)), cShape, C.int(len(shape)), C.int(dtype))
+
+	arr := &Array{
+		handle: handle,
+		shape:  shape,
+		dtype:  dtype,
+	}
+	c.arrays[handle] = arr
+	return arr
+}
+
+// Maximum computes element-wise maximum of two arrays
+func (c *Context) Maximum(a, b *Array) *Array {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	handle := C.mlx_maximum(a.handle, b.handle)
+
+	arr := &Array{
+		handle: handle,
+		shape:  a.shape,
+		dtype:  a.dtype,
+	}
+	c.arrays[handle] = arr
+	return arr
+}

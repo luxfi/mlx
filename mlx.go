@@ -15,10 +15,13 @@
 package mlx
 
 /*
-#cgo CXXFLAGS: -std=c++17 -O3
-#cgo darwin LDFLAGS: -framework Metal -framework Foundation -framework CoreGraphics
-#cgo linux LDFLAGS: -lm -ldl
-#cgo windows LDFLAGS: -lm
+#cgo CXXFLAGS: -std=c++17 -O3 -I${SRCDIR}
+#cgo darwin CXXFLAGS: -I${SRCDIR}/mlx
+#cgo darwin LDFLAGS: -L${SRCDIR}/lib -lmlx -framework Metal -framework Foundation -framework CoreGraphics -framework Accelerate
+#cgo linux CXXFLAGS: -I${SRCDIR}/mlx
+#cgo linux LDFLAGS: -L${SRCDIR}/lib -lmlx -lm -ldl -lstdc++
+#cgo windows CXXFLAGS: -I${SRCDIR}/mlx
+#cgo windows LDFLAGS: -L${SRCDIR}/lib -lmlx -lm -lstdc++
 #include "mlx_c_api.h"
 #include <stdlib.h>
 */
@@ -26,7 +29,9 @@ import "C"
 import (
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"unsafe"
 )
@@ -74,6 +79,11 @@ type Array struct {
 	handle unsafe.Pointer
 	shape  []int
 	dtype  Dtype
+}
+
+// Shape returns the shape of the array
+func (a *Array) Shape() []int {
+	return a.shape
 }
 
 // Dtype represents the data type of array elements
@@ -131,8 +141,25 @@ func init() {
 		version: Version,
 	}
 	
-	// Auto-detect best backend
-	DefaultContext.detectBackend()
+	// Check environment variable for backend override
+	if envBackend := os.Getenv("MLX_BACKEND"); envBackend != "" {
+		switch strings.ToLower(envBackend) {
+		case "cpu":
+			DefaultContext.SetBackend(CPU)
+		case "metal":
+			DefaultContext.SetBackend(Metal)
+		case "cuda":
+			DefaultContext.SetBackend(CUDA)
+		case "auto":
+			DefaultContext.detectBackend()
+		default:
+			// Unknown backend, fall back to auto-detect
+			DefaultContext.detectBackend()
+		}
+	} else {
+		// Auto-detect best backend
+		DefaultContext.detectBackend()
+	}
 }
 
 // detectBackend automatically selects the best available backend
@@ -275,9 +302,19 @@ func Arange(start, stop, step float64) *Array {
 	return DefaultContext.Arange(start, stop, step)
 }
 
+// FromSlice creates an array from a Go slice
+func FromSlice(data []float32, shape []int, dtype Dtype) *Array {
+	return DefaultContext.FromSlice(data, shape, dtype)
+}
+
 // Add performs element-wise addition
 func Add(a, b *Array) *Array {
 	return DefaultContext.Add(a, b)
+}
+
+// Maximum computes element-wise maximum of two arrays
+func Maximum(a, b *Array) *Array {
+	return DefaultContext.Maximum(a, b)
 }
 
 // Multiply performs element-wise multiplication

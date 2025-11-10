@@ -22,17 +22,24 @@ jobs:
         # Xcode Command Line Tools should already be installed
         xcode-select --print-path
         
-    - name: Run tests
+    - name: Run tests with Metal backend
       run: |
+        echo "=== Testing Metal backend on macOS ARM64 ==="
         CGO_ENABLED=1 go test -v -timeout 30s ./...
       env:
-        GITHUB_ACTIONS: true  # Skip GPU tests that don't work in CI
+        MLX_BACKEND: auto  # Should detect Metal
+        
+    - name: Run tests with CPU fallback
+      run: |
+        echo "=== Testing CPU fallback on macOS ==="
+        CGO_ENABLED=1 go test -v -timeout 30s ./...
+      env:
+        MLX_BACKEND: cpu  # Force CPU backend
         
     - name: Run benchmarks
       run: |
+        echo "=== Running benchmarks ==="
         CGO_ENABLED=1 go test -bench=. -benchtime=1s ./...
-      env:
-        GITHUB_ACTIONS: true
 
   test-linux:
     runs-on: ubuntu-latest
@@ -47,13 +54,28 @@ jobs:
     - name: Install build dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential
+        sudo apt-get install -y build-essential gcc g++
         
-    - name: Run tests (CPU only)
+    - name: Run tests with CPU backend
       run: |
+        echo "=== Testing CPU backend on Linux ==="
         CGO_ENABLED=1 go test -v -timeout 30s ./...
       env:
         MLX_BACKEND: cpu  # Force CPU backend
+        
+    - name: Run benchmarks
+      run: |
+        echo "=== Running CPU benchmarks on Linux ==="
+        CGO_ENABLED=1 go test -bench=. -benchtime=1s ./...
+      env:
+        MLX_BACKEND: cpu
+        
+    - name: Test auto-detection (should select CPU)
+      run: |
+        echo "=== Testing auto backend detection on Linux ==="
+        CGO_ENABLED=1 go test -v -timeout 30s ./...
+      env:
+        MLX_BACKEND: auto  # Should detect CPU on Linux without CUDA
         
   test-windows:
     runs-on: windows-latest
@@ -65,12 +87,31 @@ jobs:
       with:
         go-version: '1.21'
         
-    - name: Set up MSVC
-      uses: ilammy/msvc-dev-cmd@v1
-      
-    - name: Run tests (CPU only)
+    - name: Set up MinGW
+      uses: egor-tensin/setup-mingw@v2
+      with:
+        platform: x64
+        
+    - name: Run tests with CPU backend
+      shell: bash
       run: |
-        set CGO_ENABLED=1
-        go test -v -timeout 30s ./...
+        echo "=== Testing CPU backend on Windows ==="
+        CGO_ENABLED=1 go test -v -timeout 30s ./...
       env:
         MLX_BACKEND: cpu  # Force CPU backend
+        
+    - name: Run benchmarks
+      shell: bash
+      run: |
+        echo "=== Running CPU benchmarks on Windows ==="
+        CGO_ENABLED=1 go test -bench=. -benchtime=1s ./...
+      env:
+        MLX_BACKEND: cpu
+        
+    - name: Test auto-detection (should select CPU)
+      shell: bash
+      run: |
+        echo "=== Testing auto backend detection on Windows ==="
+        CGO_ENABLED=1 go test -v -timeout 30s ./...
+      env:
+        MLX_BACKEND: auto  # Should detect CPU on Windows without CUDA

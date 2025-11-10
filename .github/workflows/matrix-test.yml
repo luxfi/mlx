@@ -1,0 +1,107 @@
+name: Matrix Test All Platforms
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS ARM64 (M1/M2)
+          - os: macos-14
+            backend: auto
+            name: "macOS ARM64 - Auto"
+          - os: macos-14
+            backend: metal
+            name: "macOS ARM64 - Metal"
+          - os: macos-14
+            backend: cpu
+            name: "macOS ARM64 - CPU"
+            
+          # macOS x64
+          - os: macos-13
+            backend: cpu
+            name: "macOS x64 - CPU"
+            
+          # Linux
+          - os: ubuntu-latest
+            backend: auto
+            name: "Linux - Auto"
+          - os: ubuntu-latest
+            backend: cpu
+            name: "Linux - CPU"
+            
+          # Windows
+          - os: windows-latest
+            backend: auto
+            name: "Windows - Auto"
+          - os: windows-latest
+            backend: cpu
+            name: "Windows - CPU"
+    
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+    
+    # macOS setup
+    - name: Install macOS dependencies
+      if: runner.os == 'macOS'
+      run: |
+        xcode-select --print-path
+    
+    # Linux setup
+    - name: Install Linux dependencies
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc g++
+        # Check for NVIDIA GPU (won't exist in GitHub Actions)
+        if command -v nvidia-smi &> /dev/null; then
+          echo "CUDA available"
+        else
+          echo "No CUDA available - using CPU backend"
+        fi
+    
+    # Windows setup
+    - name: Install Windows dependencies
+      if: runner.os == 'Windows'
+      uses: egor-tensin/setup-mingw@v2
+      with:
+        platform: x64
+    
+    # Run tests
+    - name: Run tests
+      shell: bash
+      run: |
+        echo "Testing with backend: ${{ matrix.backend }}"
+        export MLX_BACKEND="${{ matrix.backend }}"
+        export CGO_ENABLED=1
+        go test -v -timeout 30s ./...
+    
+    # Run benchmarks (short)
+    - name: Run benchmarks
+      shell: bash
+      run: |
+        export MLX_BACKEND="${{ matrix.backend }}"
+        export CGO_ENABLED=1
+        go test -bench=. -benchtime=100ms ./...
+    
+    # Verify backend selection
+    - name: Verify backend
+      shell: bash
+      run: |
+        export MLX_BACKEND="${{ matrix.backend }}"
+        export CGO_ENABLED=1
+        go test -v -run TestBackendDetection ./...

@@ -64,8 +64,6 @@ func TestBackendSwitching(t *testing.T) {
 }
 
 func TestArrayCreation(t *testing.T) {
-	t.Skip("Skipping array creation tests - stub implementation")
-	
 	// Test Zeros
 	zeros := Zeros([]int{2, 3}, Float32)
 	if zeros == nil {
@@ -92,8 +90,6 @@ func TestArrayCreation(t *testing.T) {
 }
 
 func TestArrayOperations(t *testing.T) {
-	t.Skip("Skipping array operations tests - stub implementation")
-	
 	// Create test arrays
 	a := Ones([]int{2, 2}, Float32)
 	b := Ones([]int{2, 2}, Float32)
@@ -124,8 +120,6 @@ func TestArrayOperations(t *testing.T) {
 }
 
 func TestReductions(t *testing.T) {
-	t.Skip("Skipping reduction tests - stub implementation")
-	
 	a := Ones([]int{3, 3}, Float32)
 	
 	// Test Sum
@@ -153,8 +147,6 @@ func TestReductions(t *testing.T) {
 }
 
 func TestStream(t *testing.T) {
-	t.Skip("Skipping stream tests - stub implementation")
-	
 	stream := NewStream()
 	if stream == nil {
 		t.Error("NewStream returned nil")
@@ -165,9 +157,41 @@ func TestStream(t *testing.T) {
 }
 
 func BenchmarkMatMul(b *testing.B) {
-	b.Skip("Skipping benchmarks - stub implementation")
+	// Create matrices for benchmarking
+	size := 100
+	a := Random([]int{size, size}, Float32)
+	c := Random([]int{size, size}, Float32)
+	
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		result := MatMul(a, c)
+		Eval(result)
+		DefaultContext.Free(result)
+	}
+	
+	Synchronize()
+	
+	ops := int64(size * size * size * 2) // multiply-add operations
+	b.SetBytes(ops * 4) // float32 operations
+	
+	b.Logf("Backend: %s, Device: %s", GetBackend(), GetDevice().Name)
 }
 
 func BenchmarkAdd(b *testing.B) {
-	b.Skip("Skipping benchmarks - stub implementation")
+	// Create arrays for benchmarking
+	size := 10000
+	a := Random([]int{size}, Float32)
+	c := Random([]int{size}, Float32)
+	
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		result := Add(a, c)
+		Eval(result)
+		DefaultContext.Free(result)
+	}
+	
+	Synchronize()
+	
+	b.SetBytes(int64(size * 4 * 2)) // 2 arrays of float32
+	b.Logf("Backend: %s, Device: %s", GetBackend(), GetDevice().Name)
 }

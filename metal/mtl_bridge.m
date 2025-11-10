@@ -3,6 +3,7 @@
 
 #import <Metal/Metal.h>
 #import <Foundation/Foundation.h>
+#include <string.h>
 
 // Helper function to get Metal device
 id<MTLDevice> getDevice(void* devicePtr) {
@@ -142,4 +143,15 @@ void mtlCommit(void* commandBufferPtr) {
 void mtlWaitUntilCompleted(void* commandBufferPtr) {
     id<MTLCommandBuffer> commandBuffer = (__bridge id<MTLCommandBuffer>)commandBufferPtr;
     [commandBuffer waitUntilCompleted];
+}
+
+// Buffer data access
+void* mtlGetBufferContents(void* bufferPtr) {
+    id<MTLBuffer> buffer = (__bridge id<MTLBuffer>)bufferPtr;
+    return [buffer contents];
+}
+
+void mtlCopyBufferData(void* bufferPtr, void* destination, unsigned long length) {
+    id<MTLBuffer> buffer = (__bridge id<MTLBuffer>)bufferPtr;
+    memcpy(destination, [buffer contents], length);
 }

@@ -54,3 +54,9 @@ void mlx_free_array(void* array);
 #endif
 
 #endif // MLX_C_API_H
+// Array creation from data
+void* mlx_from_slice(float* data, int data_len, int* shape, int ndim, int dtype);
+
+// Element-wise maximum
+void* mlx_maximum(void* a, void* b);
+

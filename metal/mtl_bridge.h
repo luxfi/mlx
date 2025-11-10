@@ -39,6 +39,10 @@ void mtlEndEncoding(void* encoder);
 void mtlCommit(void* commandBuffer);
 void mtlWaitUntilCompleted(void* commandBuffer);
 
+// Buffer data access
+void* mtlGetBufferContents(void* buffer);
+void mtlCopyBufferData(void* buffer, void* destination, unsigned long length);
+
 #ifdef __cplusplus
 }
 #endif

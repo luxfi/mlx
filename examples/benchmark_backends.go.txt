@@ -1,0 +1,90 @@
+package main
+
+import (
+    "fmt"
+    "time"
+    "github.com/luxfi/mlx"
+)
+
+func benchmarkBackend(backend mlx.Backend, name string) {
+    // Set backend
+    err := mlx.SetBackend(backend)
+    if err != nil {
+        fmt.Printf("  ✗ %s not available: %v\n", name, err)
+        return
+    }
+    
+    fmt.Printf("\n%s Backend:\n", name)
+    fmt.Printf("  Device: %s\n", mlx.GetDevice().Name)
+    
+    // Create test matrices
+    size := 1000
+    a := mlx.Random([]int{size, size}, mlx.Float32)
+    b := mlx.Random([]int{size, size}, mlx.Float32)
+    
+    // Warmup
+    c := mlx.MatMul(a, b)
+    mlx.Eval(c)
+    mlx.Synchronize()
+    mlx.DefaultContext.Free(c)
+    
+    // Benchmark MatMul
+    iterations := 5
+    start := time.Now()
+    for i := 0; i < iterations; i++ {
+        c = mlx.MatMul(a, b)
+        mlx.Eval(c)
+        mlx.Synchronize()
+        mlx.DefaultContext.Free(c)
+    }
+    elapsed := time.Since(start)
+    
+    // Calculate performance
+    ops := int64(size * size * size * 2 * iterations) // multiply-add operations
+    gflops := float64(ops) / elapsed.Seconds() / 1e9
+    throughput := float64(size*size*4*2*iterations) / elapsed.Seconds() / 1e9 // GB/s
+    
+    fmt.Printf("  MatMul %dx%d:\n", size, size)
+    fmt.Printf("    Time: %.2f ms per iteration\n", elapsed.Seconds()*1000/float64(iterations))
+    fmt.Printf("    Performance: %.1f GFLOPS\n", gflops)
+    fmt.Printf("    Throughput: %.1f GB/s\n", throughput)
+    
+    // Benchmark Add
+    a2 := mlx.Random([]int{size * size}, mlx.Float32)
+    b2 := mlx.Random([]int{size * size}, mlx.Float32)
+    
+    start = time.Now()
+    for i := 0; i < iterations*10; i++ {
+        c2 := mlx.Add(a2, b2)
+        mlx.Eval(c2)
+    }
+    mlx.Synchronize()
+    elapsed = time.Since(start)
+    
+    addThroughput := float64(size*size*4*2*iterations*10) / elapsed.Seconds() / 1e9
+    fmt.Printf("  Array Add:\n")
+    fmt.Printf("    Throughput: %.1f GB/s\n", addThroughput)
+}
+
+func main() {
+    fmt.Println("=== MLX Backend Performance Comparison ===")
+    fmt.Println()
+    fmt.Println("Testing on:", mlx.Info())
+    fmt.Println()
+    
+    // Test auto-detection first
+    fmt.Println("Auto-Detection:")
+    fmt.Printf("  Selected: %s\n", mlx.GetBackend())
+    
+    // Benchmark each available backend
+    benchmarkBackend(mlx.Metal, "Metal")
+    benchmarkBackend(mlx.CPU, "CPU")
+    benchmarkBackend(mlx.CUDA, "CUDA")
+    
+    // Reset to auto
+    mlx.SetBackend(mlx.Auto)
+    
+    fmt.Println("\n=== Recommendation ===")
+    fmt.Printf("Auto-detection selected: %s\n", mlx.GetBackend())
+    fmt.Println("This is the optimal backend for your hardware.")
+}

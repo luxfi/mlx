@@ -184,6 +184,9 @@ func (md *MetalDevice) MatMul(a, b []float32, m, n, k int) ([]float32, error) {
 	C.mtlCommit(cmdBuffer)
 	C.mtlWaitUntilCompleted(cmdBuffer)
 	
+	// Copy results back from GPU buffer
+	C.mtlCopyBufferData(cBuffer, unsafe.Pointer(&result[0]), C.ulong(len(result)*4))
+	
 	return result, nil
 }
 
@@ -227,6 +230,9 @@ func (md *MetalDevice) Add(a, b []float32) ([]float32, error) {
 	C.mtlEndEncoding(encoder)
 	C.mtlCommit(cmdBuffer)
 	C.mtlWaitUntilCompleted(cmdBuffer)
+	
+	// Copy results back from GPU buffer
+	C.mtlCopyBufferData(cBuffer, unsafe.Pointer(&result[0]), C.ulong(len(result)*4))
 	
 	return result, nil
 }
