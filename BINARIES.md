@@ -31,13 +31,23 @@ mkdir -p lib
 tar -xzf libmlx-linux-x64.tar.gz -C lib/
 ```
 
-### Windows x64 - CPU
+### Windows x64 - ONNX Runtime Recommended
 
-```bash
-curl -LO https://github.com/luxfi/mlx/releases/latest/download/libmlx-windows-x64.tar.gz
-mkdir -p lib
-tar -xzf libmlx-windows-x64.tar.gz -C lib/
-```
+**Note**: MLX's CPU backend uses GCC/Clang-specific intrinsics (`__builtin_clz`, `typeof`) that don't compile with MSVC. For Windows users, we recommend:
+
+1. **ONNX Runtime** (Recommended)
+   - Better Windows compatibility
+   - Optimized for CPU and GPU inference
+   - See [ONNX Runtime docs](https://onnxruntime.ai/)
+
+2. **Build from source with MinGW**
+   ```bash
+   # Install MinGW-w64
+   # Clone and build MLX with MinGW toolchain
+   mkdir build && cd build
+   cmake .. -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+   cmake --build . --target mlx
+   ```
 
 ## Using with Go
 
@@ -81,9 +91,9 @@ CGO_ENABLED=1 go build
 | Platform | Architecture | Acceleration | Binary Size | Status |
 |----------|-------------|--------------|-------------|--------|
 | macOS | ARM64 (Apple Silicon) | Metal GPU | ~84 MB | ✅ Available |
-| macOS | x86_64 (Intel) | CPU | ~84 MB | ✅ Available |
+| macOS | x86_64 (Intel) | CPU | ~84 MB | ⚠️ Build from source |
 | Linux | x86_64 | CPU | ~84 MB | ✅ Available |
-| Windows | x86_64 | CPU | ~84 MB | ✅ Available |
+| Windows | x86_64 | CPU | ~84 MB | ⚠️ Use ONNX Runtime |
 
 ## Building from Source
 
@@ -171,6 +181,17 @@ uname -m  # Should show x86_64
 # Windows
 echo %PROCESSOR_ARCHITECTURE%  # Should show AMD64
 ```
+
+### Windows MSVC compilation errors
+
+If you see errors like:
+- `error C3861: '__builtin_clz': identifier not found`
+- `error C3861: 'typeof': identifier not found`
+
+This is because MLX uses GCC/Clang intrinsics. Solutions:
+1. Use ONNX Runtime instead (recommended)
+2. Build with MinGW-w64 toolchain
+3. Use WSL2 with Linux binaries
 
 ### Build from source instead
 

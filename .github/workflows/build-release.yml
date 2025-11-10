@@ -157,7 +157,8 @@ jobs:
         retention-days: 90
 
   create-release:
-    needs: [build-macos-arm64, build-macos-x64, build-linux-x64, build-windows-x64]
+    needs: [build-macos-arm64, build-linux-x64]
+    if: always()
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -175,17 +176,25 @@ jobs:
         Pre-compiled MLX C++ libraries for Go bindings
 
         ## Platform Support
-        - macOS ARM64 (M1/M2/M3) - Metal GPU acceleration
-        - macOS x64 - CPU backend
-        - Linux x64 - CPU backend
-        - Windows x64 - CPU backend
+        - ✅ macOS ARM64 (M1/M2/M3/M4) - Metal GPU acceleration
+        - ✅ Linux x64 - CPU backend with OpenBLAS
+        - ⚠️ Windows x64 - ONNX runtime recommended (MLX has MSVC compatibility issues)
+        - ⚠️ macOS x64 (Intel) - Build from source or use ONNX
 
         ## Quick Install
-        Download for your platform:
+
+        ### macOS ARM64 (Recommended)
         ```bash
-        # macOS ARM64
         curl -LO https://github.com/luxfi/mlx/releases/latest/download/libmlx-macos-arm64.tar.gz
+        mkdir -p lib
         tar -xzf libmlx-macos-arm64.tar.gz -C lib/
+        ```
+
+        ### Linux x64
+        ```bash
+        curl -LO https://github.com/luxfi/mlx/releases/latest/download/libmlx-linux-x64.tar.gz
+        mkdir -p lib
+        tar -xzf libmlx-linux-x64.tar.gz -C lib/
         ```
 
         See BINARIES.md for complete installation instructions.
@@ -202,11 +211,14 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/}"
         fi
 
-        # Create release with all binaries
+        # Create release with available binaries
+        ARTIFACTS=""
+        [ -f artifacts/libmlx-macos-arm64/libmlx-macos-arm64.tar.gz ] && ARTIFACTS="$ARTIFACTS artifacts/libmlx-macos-arm64/libmlx-macos-arm64.tar.gz"
+        [ -f artifacts/libmlx-linux-x64/libmlx-linux-x64.tar.gz ] && ARTIFACTS="$ARTIFACTS artifacts/libmlx-linux-x64/libmlx-linux-x64.tar.gz"
+        [ -f artifacts/libmlx-macos-x64/libmlx-macos-x64.tar.gz ] && ARTIFACTS="$ARTIFACTS artifacts/libmlx-macos-x64/libmlx-macos-x64.tar.gz"
+        [ -f artifacts/libmlx-windows-x64/libmlx-windows-x64.tar.gz ] && ARTIFACTS="$ARTIFACTS artifacts/libmlx-windows-x64/libmlx-windows-x64.tar.gz"
+        
         gh release create "$VERSION" \
           --title "MLX Go Bindings $VERSION" \
           --notes-file release_notes.md \
-          artifacts/libmlx-macos-arm64/libmlx-macos-arm64.tar.gz \
-          artifacts/libmlx-macos-x64/libmlx-macos-x64.tar.gz \
-          artifacts/libmlx-linux-x64/libmlx-linux-x64.tar.gz \
-          artifacts/libmlx-windows-x64/libmlx-windows-x64.tar.gz || true
+          $ARTIFACTS || true
