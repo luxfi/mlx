@@ -49,14 +49,15 @@ void mlx_free_stream(void* stream);
 // Memory management
 void mlx_free_array(void* array);
 
-#ifdef __cplusplus
-}
-#endif
-
-#endif // MLX_C_API_H
 // Array creation from data
 void* mlx_from_slice(float* data, int data_len, int* shape, int ndim, int dtype);
 
 // Element-wise maximum
 void* mlx_maximum(void* a, void* b);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // MLX_C_API_H
 
