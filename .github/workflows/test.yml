@@ -21,7 +21,21 @@ jobs:
       run: |
         # Xcode Command Line Tools should already be installed
         xcode-select --print-path
-        
+
+    - name: Build MLX C++ library
+      run: |
+        echo "=== Building MLX C++ library for Metal backend ==="
+        mkdir -p build && cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DMLX_BUILD_TESTS=OFF \
+          -DMLX_BUILD_EXAMPLES=OFF \
+          -DMLX_BUILD_PYTHON_BINDINGS=OFF \
+          -DMLX_BUILD_METAL=ON
+        make -j$(sysctl -n hw.ncpu) mlx
+        # Copy library to expected location
+        cp libmlx.a ../lib/
+
     - name: Run tests with Metal backend
       run: |
         echo "=== Testing Metal backend on macOS ARM64 ==="
@@ -54,8 +68,23 @@ jobs:
     - name: Install build dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc g++
-        
+        sudo apt-get install -y build-essential gcc g++ cmake
+
+    - name: Build MLX C++ library
+      run: |
+        echo "=== Building MLX C++ library for CPU backend ==="
+        mkdir -p build && cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DMLX_BUILD_TESTS=OFF \
+          -DMLX_BUILD_EXAMPLES=OFF \
+          -DMLX_BUILD_PYTHON_BINDINGS=OFF \
+          -DMLX_BUILD_METAL=OFF
+        make -j$(nproc) mlx
+        # Copy library to expected location
+        mkdir -p ../lib
+        cp libmlx.a ../lib/
+
     - name: Run tests with CPU backend
       run: |
         echo "=== Testing CPU backend on Linux ==="
@@ -91,7 +120,27 @@ jobs:
       uses: egor-tensin/setup-mingw@v2
       with:
         platform: x64
-        
+
+    - name: Install CMake
+      run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+
+    - name: Build MLX C++ library
+      shell: bash
+      run: |
+        echo "=== Building MLX C++ library for CPU backend ==="
+        mkdir -p build && cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DMLX_BUILD_TESTS=OFF \
+          -DMLX_BUILD_EXAMPLES=OFF \
+          -DMLX_BUILD_PYTHON_BINDINGS=OFF \
+          -DMLX_BUILD_METAL=OFF \
+          -G "MinGW Makefiles"
+        cmake --build . --target mlx -j
+        # Copy library to expected location
+        mkdir -p ../lib
+        cp libmlx.a ../lib/
+
     - name: Run tests with CPU backend
       shell: bash
       run: |
