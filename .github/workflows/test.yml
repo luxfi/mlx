@@ -22,9 +22,27 @@ jobs:
         # Xcode Command Line Tools should already be installed
         xcode-select --print-path
 
-    - name: Build MLX C++ library
+    - name: Download pre-built MLX library
       run: |
-        echo "=== Building MLX C++ library for Metal backend ==="
+        echo "=== Downloading pre-built MLX library ==="
+        mkdir -p lib
+        # Try to download from latest release
+        LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
+        if [ -n "$LATEST_TAG" ]; then
+          echo "Downloading from release $LATEST_TAG"
+          gh release download "$LATEST_TAG" -p "libmlx-macos-arm64.tar.gz" 2>/dev/null && \
+            tar -xzf libmlx-macos-arm64.tar.gz -C lib/ && \
+            echo "✅ Downloaded pre-built library" && exit 0
+        fi
+        echo "⚠️ No pre-built library found, will build from source"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
+
+    - name: Build MLX C++ library (fallback)
+      if: hashFiles('lib/libmlx.a') == ''
+      run: |
+        echo "=== Building MLX C++ library from source ==="
         mkdir -p build && cd build
         cmake .. \
           -DCMAKE_BUILD_TYPE=Release \
@@ -33,7 +51,6 @@ jobs:
           -DMLX_BUILD_PYTHON_BINDINGS=OFF \
           -DMLX_BUILD_METAL=ON
         make -j$(sysctl -n hw.ncpu) mlx
-        # Copy library to expected location
         cp libmlx.a ../lib/
 
     - name: Run tests with Metal backend
@@ -70,9 +87,26 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential gcc g++ cmake
 
-    - name: Build MLX C++ library
+    - name: Download pre-built MLX library
       run: |
-        echo "=== Building MLX C++ library for CPU backend ==="
+        echo "=== Downloading pre-built MLX library ==="
+        mkdir -p lib
+        LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
+        if [ -n "$LATEST_TAG" ]; then
+          echo "Downloading from release $LATEST_TAG"
+          gh release download "$LATEST_TAG" -p "libmlx-linux-x64.tar.gz" 2>/dev/null && \
+            tar -xzf libmlx-linux-x64.tar.gz -C lib/ && \
+            echo "✅ Downloaded pre-built library" && exit 0
+        fi
+        echo "⚠️ No pre-built library found, will build from source"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
+
+    - name: Build MLX C++ library (fallback)
+      if: hashFiles('lib/libmlx.a') == ''
+      run: |
+        echo "=== Building MLX C++ library from source ==="
         mkdir -p build && cd build
         cmake .. \
           -DCMAKE_BUILD_TYPE=Release \
@@ -81,7 +115,6 @@ jobs:
           -DMLX_BUILD_PYTHON_BINDINGS=OFF \
           -DMLX_BUILD_METAL=OFF
         make -j$(nproc) mlx
-        # Copy library to expected location
         mkdir -p ../lib
         cp libmlx.a ../lib/
 
@@ -124,10 +157,28 @@ jobs:
     - name: Install CMake
       run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
-    - name: Build MLX C++ library
+    - name: Download pre-built MLX library
       shell: bash
       run: |
-        echo "=== Building MLX C++ library for CPU backend ==="
+        echo "=== Downloading pre-built MLX library ==="
+        mkdir -p lib
+        LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
+        if [ -n "$LATEST_TAG" ]; then
+          echo "Downloading from release $LATEST_TAG"
+          gh release download "$LATEST_TAG" -p "libmlx-windows-x64.tar.gz" 2>/dev/null && \
+            tar -xzf libmlx-windows-x64.tar.gz -C lib/ && \
+            echo "✅ Downloaded pre-built library" && exit 0
+        fi
+        echo "⚠️ No pre-built library found, will build from source"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
+
+    - name: Build MLX C++ library (fallback)
+      if: hashFiles('lib/libmlx.a') == ''
+      shell: bash
+      run: |
+        echo "=== Building MLX C++ library from source ==="
         mkdir -p build && cd build
         cmake .. \
           -DCMAKE_BUILD_TYPE=Release \
@@ -137,7 +188,6 @@ jobs:
           -DMLX_BUILD_METAL=OFF \
           -G "MinGW Makefiles"
         cmake --build . --target mlx -j
-        # Copy library to expected location
         mkdir -p ../lib
         cp libmlx.a ../lib/
 

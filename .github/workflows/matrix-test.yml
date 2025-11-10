@@ -61,10 +61,26 @@ jobs:
       run: |
         xcode-select --print-path
 
-    - name: Build MLX (macOS)
+    - name: Download MLX (macOS)
       if: runner.os == 'macOS'
       run: |
-        echo "=== Building MLX C++ library ==="
+        mkdir -p lib
+        LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
+        if [ -n "$LATEST_TAG" ]; then
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "arm64" ]; then
+            gh release download "$LATEST_TAG" -p "libmlx-macos-arm64.tar.gz" 2>/dev/null && tar -xzf libmlx-macos-arm64.tar.gz -C lib/ && exit 0
+          else
+            gh release download "$LATEST_TAG" -p "libmlx-macos-x64.tar.gz" 2>/dev/null && tar -xzf libmlx-macos-x64.tar.gz -C lib/ && exit 0
+          fi
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
+
+    - name: Build MLX (macOS fallback)
+      if: runner.os == 'macOS' && hashFiles('lib/libmlx.a') == ''
+      run: |
         mkdir -p build && cd build
         cmake .. -DCMAKE_BUILD_TYPE=Release -DMLX_BUILD_TESTS=OFF -DMLX_BUILD_EXAMPLES=OFF -DMLX_BUILD_PYTHON_BINDINGS=OFF -DMLX_BUILD_METAL=ON
         make -j$(sysctl -n hw.ncpu) mlx
@@ -83,10 +99,21 @@ jobs:
           echo "No CUDA available - using CPU backend"
         fi
 
-    - name: Build MLX (Linux)
+    - name: Download MLX (Linux)
       if: runner.os == 'Linux'
       run: |
-        echo "=== Building MLX C++ library ==="
+        mkdir -p lib
+        LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
+        if [ -n "$LATEST_TAG" ]; then
+          gh release download "$LATEST_TAG" -p "libmlx-linux-x64.tar.gz" 2>/dev/null && tar -xzf libmlx-linux-x64.tar.gz -C lib/ && exit 0
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
+
+    - name: Build MLX (Linux fallback)
+      if: runner.os == 'Linux' && hashFiles('lib/libmlx.a') == ''
+      run: |
         mkdir -p build && cd build
         cmake .. -DCMAKE_BUILD_TYPE=Release -DMLX_BUILD_TESTS=OFF -DMLX_BUILD_EXAMPLES=OFF -DMLX_BUILD_PYTHON_BINDINGS=OFF -DMLX_BUILD_METAL=OFF
         make -j$(nproc) mlx
@@ -103,11 +130,23 @@ jobs:
       if: runner.os == 'Windows'
       run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
 
-    - name: Build MLX (Windows)
+    - name: Download MLX (Windows)
       if: runner.os == 'Windows'
       shell: bash
       run: |
-        echo "=== Building MLX C++ library ==="
+        mkdir -p lib
+        LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
+        if [ -n "$LATEST_TAG" ]; then
+          gh release download "$LATEST_TAG" -p "libmlx-windows-x64.tar.gz" 2>/dev/null && tar -xzf libmlx-windows-x64.tar.gz -C lib/ && exit 0
+        fi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      continue-on-error: true
+
+    - name: Build MLX (Windows fallback)
+      if: runner.os == 'Windows' && hashFiles('lib/libmlx.a') == ''
+      shell: bash
+      run: |
         mkdir -p build && cd build
         cmake .. -DCMAKE_BUILD_TYPE=Release -DMLX_BUILD_TESTS=OFF -DMLX_BUILD_EXAMPLES=OFF -DMLX_BUILD_PYTHON_BINDINGS=OFF -DMLX_BUILD_METAL=OFF -G "MinGW Makefiles"
         cmake --build . --target mlx -j

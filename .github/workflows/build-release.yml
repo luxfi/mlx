@@ -1,0 +1,225 @@
+name: Build MLX Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.29.4)'
+        required: true
+        default: 'v0.29.4'
+
+jobs:
+  build-macos-arm64:
+    runs-on: macos-14
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build MLX for macOS ARM64 (Metal)
+      run: |
+        echo "=== Building MLX C++ library for macOS ARM64 ==="
+        mkdir -p build && cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_OSX_ARCHITECTURES=arm64 \
+          -DMLX_BUILD_TESTS=OFF \
+          -DMLX_BUILD_EXAMPLES=OFF \
+          -DMLX_BUILD_PYTHON_BINDINGS=OFF \
+          -DMLX_BUILD_METAL=ON
+        make -j$(sysctl -n hw.ncpu) mlx
+
+    - name: Package binary
+      run: |
+        cd build
+        mkdir -p artifact
+        cp libmlx.a artifact/
+        tar -czf libmlx-macos-arm64.tar.gz -C artifact libmlx.a
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: libmlx-macos-arm64
+        path: build/libmlx-macos-arm64.tar.gz
+        retention-days: 90
+
+  build-macos-x64:
+    runs-on: macos-13
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build MLX for macOS x64 (CPU)
+      run: |
+        echo "=== Building MLX C++ library for macOS x64 ==="
+        mkdir -p build && cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+          -DMLX_BUILD_TESTS=OFF \
+          -DMLX_BUILD_EXAMPLES=OFF \
+          -DMLX_BUILD_PYTHON_BINDINGS=OFF \
+          -DMLX_BUILD_METAL=OFF
+        make -j$(sysctl -n hw.ncpu) mlx
+
+    - name: Package binary
+      run: |
+        cd build
+        mkdir -p artifact
+        cp libmlx.a artifact/
+        tar -czf libmlx-macos-x64.tar.gz -C artifact libmlx.a
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: libmlx-macos-x64
+        path: build/libmlx-macos-x64.tar.gz
+        retention-days: 90
+
+  build-linux-x64:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential gcc g++ cmake
+
+    - name: Build MLX for Linux x64 (CPU)
+      run: |
+        echo "=== Building MLX C++ library for Linux x64 ==="
+        mkdir -p build && cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DMLX_BUILD_TESTS=OFF \
+          -DMLX_BUILD_EXAMPLES=OFF \
+          -DMLX_BUILD_PYTHON_BINDINGS=OFF \
+          -DMLX_BUILD_METAL=OFF
+        make -j$(nproc) mlx
+
+    - name: Package binary
+      run: |
+        cd build
+        mkdir -p artifact
+        cp libmlx.a artifact/
+        tar -czf libmlx-linux-x64.tar.gz -C artifact libmlx.a
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: libmlx-linux-x64
+        path: build/libmlx-linux-x64.tar.gz
+        retention-days: 90
+
+  build-windows-x64:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up MinGW
+      uses: egor-tensin/setup-mingw@v2
+      with:
+        platform: x64
+
+    - name: Install CMake
+      run: choco install cmake --installargs 'ADD_CMAKE_TO_PATH=System' -y
+
+    - name: Build MLX for Windows x64 (CPU)
+      shell: bash
+      run: |
+        echo "=== Building MLX C++ library for Windows x64 ==="
+        mkdir -p build && cd build
+        cmake .. \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DMLX_BUILD_TESTS=OFF \
+          -DMLX_BUILD_EXAMPLES=OFF \
+          -DMLX_BUILD_PYTHON_BINDINGS=OFF \
+          -DMLX_BUILD_METAL=OFF \
+          -G "MinGW Makefiles"
+        cmake --build . --target mlx -j
+
+    - name: Package binary
+      shell: bash
+      run: |
+        cd build
+        mkdir -p artifact
+        cp libmlx.a artifact/
+        tar -czf libmlx-windows-x64.tar.gz -C artifact libmlx.a
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: libmlx-windows-x64
+        path: build/libmlx-windows-x64.tar.gz
+        retention-days: 90
+
+  create-release:
+    needs: [build-macos-arm64, build-macos-x64, build-linux-x64, build-windows-x64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Create Release
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        # Determine version
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION="${GITHUB_REF#refs/tags/}"
+        fi
+
+        # Create release with all binaries
+        gh release create "$VERSION" \
+          --title "MLX Go Bindings $VERSION" \
+          --notes "Pre-compiled MLX C++ libraries for Go bindings
+
+## Platform Support
+- **macOS ARM64** (M1/M2/M3) - Metal GPU acceleration
+- **macOS x64** - CPU backend
+- **Linux x64** - CPU backend
+- **Windows x64** - CPU backend
+
+## Installation
+Download the appropriate binary for your platform and extract to \`lib/\` directory:
+\`\`\`bash
+# macOS ARM64
+curl -LO https://github.com/luxfi/mlx/releases/download/$VERSION/libmlx-macos-arm64.tar.gz
+tar -xzf libmlx-macos-arm64.tar.gz -C lib/
+
+# Linux x64
+curl -LO https://github.com/luxfi/mlx/releases/download/$VERSION/libmlx-linux-x64.tar.gz
+tar -xzf libmlx-linux-x64.tar.gz -C lib/
+
+# Windows x64
+curl -LO https://github.com/luxfi/mlx/releases/download/$VERSION/libmlx-windows-x64.tar.gz
+tar -xzf libmlx-windows-x64.tar.gz -C lib/
+\`\`\`
+
+## Go Integration
+\`\`\`go
+import \"github.com/luxfi/mlx\"
+
+func main() {
+    // MLX will auto-detect available backend
+    ctx := mlx.NewContext()
+    defer ctx.Close()
+
+    // Create tensors and run operations
+    a := mlx.Zeros([]int{3, 3}, mlx.Float32)
+    fmt.Println(\"Backend:\", mlx.GetBackend())
+}
+\`\`\`" \
+          artifacts/libmlx-macos-arm64/libmlx-macos-arm64.tar.gz \
+          artifacts/libmlx-macos-x64/libmlx-macos-x64.tar.gz \
+          artifacts/libmlx-linux-x64/libmlx-linux-x64.tar.gz \
+          artifacts/libmlx-windows-x64/libmlx-windows-x64.tar.gz || true
