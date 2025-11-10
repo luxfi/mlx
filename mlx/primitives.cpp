@@ -1105,7 +1105,6 @@ std::pair<std::vector<array>, std::vector<int>> Concatenate::vmap(
   // Make sure vmapped arrays have all vmapped axes in the same location and
   // expand non-vmapped arrays to be compatible with the vmapped ones.
   std::vector<array> t_inputs;
-  int N = inputs[first_vmap].shape(out_ax);
   int axis = axis_ + (axis_ >= out_ax);
   auto cat_shape = inputs[first_vmap].shape();
   for (int i = 0; i < axes.size(); i++) {
@@ -1241,6 +1240,114 @@ array conv_weight_backward_patches(
   auto grad = matmul(transpose(cotan_mat, {1, 0}, s), in_patches, s);
   grad = reshape(grad, wt.shape(), s);
   return grad;
+}
+
+namespace {
+
+// Conv helpers
+inline int conv_out_axis_size(int in_dim, int wt_dim, int stride, int padding) {
+  return ((in_dim + padding - wt_dim) / stride) + 1;
+}
+
+// Conv helpers
+inline int dilate_size(int dim, int dil) {
+  return 1 + dil * (dim - 1);
+}
+
+} // namespace
+
+Shape Convolution::conv_out_shape(
+    const Shape& in_shape,
+    const Shape& wt_shape,
+    const std::vector<int>& strides,
+    const std::vector<int>& pads_lo,
+    const std::vector<int>& pads_hi,
+    const std::vector<int>& kernel_dilation,
+    const std::vector<int>& input_dilation) {
+  int N = in_shape[0];
+  int O = wt_shape[0];
+  Shape out_shape(in_shape.size());
+  int i = 0;
+  out_shape[i++] = N;
+
+  int spatial_dims = in_shape.size() - 2;
+
+  if (strides.size() != spatial_dims) {
+    std::ostringstream msg;
+    msg << "[conv] Invalid strides " << strides << " for " << spatial_dims
+        << "D convolution.";
+    throw std::invalid_argument(msg.str());
+  }
+
+  if (pads_lo.size() != spatial_dims || pads_hi.size() != spatial_dims) {
+    std::ostringstream msg;
+    msg << "[conv] Invalid padding " << pads_lo << " | " << pads_hi << " for "
+        << spatial_dims << "D convolution.";
+    throw std::invalid_argument(msg.str());
+  }
+
+  if (kernel_dilation.size() != spatial_dims) {
+    std::ostringstream msg;
+    msg << "[conv] Invalid kernel dilation " << kernel_dilation << " for "
+        << spatial_dims << "D convolution.";
+    throw std::invalid_argument(msg.str());
+  }
+
+  if (input_dilation.size() != spatial_dims) {
+    std::ostringstream msg;
+    msg << "[conv] Invalid input dilation " << input_dilation << " for "
+        << spatial_dims << "D convolution.";
+    throw std::invalid_argument(msg.str());
+  }
+
+  for (; i < in_shape.size() - 1; i++) {
+    if (kernel_dilation[i - 1] <= 0) {
+      std::ostringstream msg;
+      msg << "[conv] Kernel dilation sizes must be positive."
+          << " Got kernel dilation " << kernel_dilation << ".";
+      throw std::invalid_argument(msg.str());
+    }
+
+    if (input_dilation[i - 1] <= 0) {
+      std::ostringstream msg;
+      msg << "[conv] Input dilation sizes must be positive."
+          << " Got input dilation " << input_dilation << ".";
+      throw std::invalid_argument(msg.str());
+    }
+
+    if (pads_lo[i - 1] < 0 || pads_hi[i - 1] < 0) {
+      std::ostringstream msg;
+      msg << "[conv] Padding sizes must be non-negative." << " Got padding "
+          << pads_lo << " | " << pads_hi << ".";
+      throw std::invalid_argument(msg.str());
+    }
+
+    if (strides[i - 1] <= 0) {
+      std::ostringstream msg;
+      msg << "[conv] Stride sizes must be positive." << " Got strides "
+          << strides << ".";
+      throw std::invalid_argument(msg.str());
+    }
+
+    int kd = dilate_size(wt_shape[i], kernel_dilation[i - 1]);
+    int id = dilate_size(in_shape[i], input_dilation[i - 1]);
+
+    out_shape[i] = conv_out_axis_size(
+        id, kd, strides[i - 1], pads_lo[i - 1] + pads_hi[i - 1]);
+
+    if (out_shape[i] <= 0) {
+      std::ostringstream msg;
+      msg << "[conv] Spatial dimensions of input after padding"
+          << " cannot be smaller than weight spatial dimensions."
+          << " Got error at axis " << i << " for input with shape " << in_shape
+          << ", padding low " << pads_lo << ", padding high " << pads_hi
+          << ", and weight of shape " << wt_shape << ".";
+      throw std::invalid_argument(msg.str());
+    }
+  }
+  out_shape[i] = O;
+
+  return out_shape;
 }
 
 std::vector<array> Convolution::vjp(
@@ -1452,6 +1559,18 @@ bool Convolution::is_equivalent(const Primitive& other) const {
       kernel_dilation_ == c_other.kernel_dilation_ &&
       input_dilation_ == c_other.input_dilation_ &&
       groups_ == c_other.groups_ && flip_ == c_other.flip_;
+}
+
+std::vector<Shape> Convolution::output_shapes(
+    const std::vector<array>& inputs) {
+  return {conv_out_shape(
+      inputs[0].shape(), // in_shape
+      inputs[1].shape(), // wt_shape
+      kernel_strides_,
+      padding_lo_,
+      padding_hi_,
+      kernel_dilation_,
+      input_dilation_)};
 }
 
 std::vector<array> Copy::vjp(
@@ -3208,6 +3327,40 @@ std::pair<std::vector<array>, std::vector<int>> Power::vmap(
   return {{power(a, b, stream())}, {to_ax}};
 }
 
+std::string quantization_mode_to_string(QuantizationMode mode) {
+  switch (mode) {
+    case QuantizationMode::Affine:
+      return "affine";
+    case QuantizationMode::Mxfp4:
+      return "mxfp4";
+    case QuantizationMode::Mxfp8:
+      return "mxfp8";
+    case QuantizationMode::Nvfp4:
+    default:
+      return "nvfp4";
+  }
+}
+
+QuantizationMode string_to_quantization_mode(
+    const std::string& mode,
+    std::string_view tag /* = "" */) {
+  if (mode == "affine") {
+    return QuantizationMode::Affine;
+  } else if (mode == "mxfp4") {
+    return QuantizationMode::Mxfp4;
+  } else if (mode == "mxfp8") {
+    return QuantizationMode::Mxfp8;
+  } else if (mode == "nvfp4") {
+    return QuantizationMode::Nvfp4;
+  }
+  std::string msg;
+  if (!tag.empty()) {
+    msg += "[" + std::string(tag) + "]";
+  }
+  msg += " Invalid quantization mode '" + mode + "'.";
+  throw std::invalid_argument(msg);
+}
+
 std::pair<std::vector<array>, std::vector<int>> QuantizedMatmul::vmap(
     const std::vector<array>& inputs,
     const std::vector<int>& axes) {
@@ -3230,10 +3383,12 @@ std::vector<array> QuantizedMatmul::vjp(
           cotangents[0],
           primals[1],
           primals[2],
-          primals[3],
+          mode_ == QuantizationMode::Affine ? std::optional<array>(primals[3])
+                                            : std::nullopt,
           !transpose_,
           group_size_,
           bits_,
+          quantization_mode_to_string(mode_),
           stream()));
     }
 
@@ -3242,6 +3397,10 @@ std::vector<array> QuantizedMatmul::vjp(
       throw std::runtime_error(
           "[QuantizedMatmul::vjp] no gradient wrt the quantized weights.");
     } else {
+      if (mode_ == QuantizationMode::Mxfp4) {
+        throw std::invalid_argument(
+            "[QuantizedMatmul::vjp] no gradient wrt scales with mxfp4 quantization.");
+      }
       if (!dsb) {
         int ndim = primals[1].ndim();
         auto fc = flatten(cotangents[0], 0, -ndim, stream());
@@ -3262,6 +3421,8 @@ std::vector<array> QuantizedMatmul::vjp(
             zeros_like(primals[3], stream()),
             group_size_,
             bits_,
+            quantization_mode_to_string(mode_),
+            std::nullopt,
             stream());
         wq = unflatten(wq, -1, {-1, group_size_}, stream());
         vjps.push_back(sum(multiply(*dsb, wq, stream()), -1, false, stream()));
@@ -3283,17 +3444,19 @@ std::vector<array> QuantizedMatmul::jvp(
       tangents[0],
       primals[1],
       primals[2],
-      primals[3],
+      mode_ == QuantizationMode::Affine ? std::optional<array>(primals[3])
+                                        : std::nullopt,
       transpose_,
       group_size_,
       bits_,
+      quantization_mode_to_string(mode_),
       stream())};
 }
 
 bool QuantizedMatmul::is_equivalent(const Primitive& other) const {
   const QuantizedMatmul& qm_other = static_cast<const QuantizedMatmul&>(other);
   return group_size_ == qm_other.group_size_ && bits_ == qm_other.bits_ &&
-      transpose_ == qm_other.transpose_;
+      mode_ == qm_other.mode_ && transpose_ == qm_other.transpose_;
 }
 
 std::vector<Shape> QuantizedMatmul::output_shapes(
@@ -3323,12 +3486,13 @@ std::vector<array> GatherQMM::vjp(
   auto& x = primals[0];
   auto& w = primals[1];
   auto& scales = primals[2];
-  auto& biases = primals[3];
-  auto& lhs_indices = primals[4];
-  auto& rhs_indices = primals[5];
+  auto& lhs_indices = primals[primals.size() - 2];
+  auto& rhs_indices = primals[primals.size() - 1];
+  auto biases = (mode_ == QuantizationMode::Affine)
+      ? std::optional<array>(primals[3])
+      : std::nullopt;
 
   int M = cotan.shape(-2);
-  int N = cotan.shape(-1);
   int K = x.shape(-1);
 
   bool sorted = left_sorted_ || right_sorted_;
@@ -3348,6 +3512,7 @@ std::vector<array> GatherQMM::vjp(
           !transpose_,
           group_size_,
           bits_,
+          quantization_mode_to_string(mode_),
           sorted,
           stream());
       if (sorted && no_broadcast) {
@@ -3368,14 +3533,19 @@ std::vector<array> GatherQMM::vjp(
     // gradient wrt to the indices is undefined
     else if (arg > 3) {
       throw std::runtime_error(
-          "GatherQMM::vjp cannot compute the gradient wrt the indices.");
+          "[GatherQMM::vjp] cannot compute the gradient wrt the indices.");
     }
 
     // gradient wrt to w_q, scales or biases
     else if (arg == 1) {
       throw std::runtime_error(
-          "GatherQMM::vjp no gradient wrt the quantized weights.");
+          "[GatherQMM::vjp] no gradient wrt the quantized weights.");
     } else {
+      if (mode_ == QuantizationMode::Mxfp4) {
+        throw std::invalid_argument(
+            "[GatherQMM::vjp] no gradient wrt scales with mxfp4 quantization.");
+      }
+
       if (!dsb) {
         auto shape = w.shape();
         shape.pop_back();
@@ -3403,9 +3573,11 @@ std::vector<array> GatherQMM::vjp(
                         dequantize(
                             w,
                             ones_like(scales, stream()),
-                            zeros_like(biases, stream()),
+                            zeros_like(*biases, stream()),
                             group_size_,
                             bits_,
+                            quantization_mode_to_string(mode_),
+                            std::nullopt,
                             stream()),
                         -1,
                         {-1, group_size_},
@@ -3430,7 +3602,7 @@ std::vector<array> GatherQMM::jvp(
 bool GatherQMM::is_equivalent(const Primitive& other) const {
   const GatherQMM& qm_other = static_cast<const GatherQMM&>(other);
   return group_size_ == qm_other.group_size_ && bits_ == qm_other.bits_ &&
-      transpose_ == qm_other.transpose_;
+      mode_ == qm_other.mode_ && transpose_ == qm_other.transpose_;
 }
 
 std::pair<std::vector<array>, std::vector<int>> RandomBits::vmap(
@@ -4382,7 +4554,6 @@ std::vector<array> SliceUpdate::vjp(
   assert(primals.size() == 2);
 
   auto& cotan = cotangents[0];
-  auto& src = primals[0];
   auto& upd = primals[1];
 
   std::vector<array> vjps;
@@ -4962,12 +5133,8 @@ std::vector<array> BlockMaskedMM::vjp(
   const int op_mask_idx = has_out_mask ? 3 : 2;
   bool needs_lhs_mask_vjp = has_op_mask;
   bool needs_rhs_mask_vjp = has_op_mask;
-  bool needs_lhs_vjp = false;
-  bool needs_rhs_vjp = false;
 
   for (auto arg : argnums) {
-    needs_lhs_vjp = arg == 0;
-    needs_rhs_vjp = arg == 1;
     needs_lhs_mask_vjp = arg == op_mask_idx;
     needs_rhs_mask_vjp = arg == op_mask_idx + 1;
   }
@@ -5192,7 +5359,6 @@ std::vector<array> GatherMM::vjp(
   auto& rhs_indices = primals[3];
 
   int M = cotan.shape(-2);
-  int N = cotan.shape(-1);
   int K = primals[0].shape(-1);
 
   bool sorted = left_sorted_ || right_sorted_;

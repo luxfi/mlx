@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <cuda_fp8.h>
+
 #include "mlx/backend/cuda/device/fp16_math.cuh"
 #include "mlx/backend/cuda/device/utils.cuh"
 
@@ -257,8 +259,8 @@ struct Round {
 struct Sigmoid {
   template <typename T>
   __device__ T operator()(T x) {
-    T y = 1 / (1 + exp(-abs(x)));
-    return (x < 0) ? 1 - y : y;
+    T y = 1 / (1 + exp(abs(x)));
+    return (x < 0) ? y : 1 - y;
   }
 };
 
@@ -331,6 +333,19 @@ struct Tanh {
   template <typename T>
   __device__ T operator()(T x) {
     return tanh(x);
+  }
+};
+
+struct ToFP8 {
+  template <typename T>
+  __device__ uint8_t operator()(T x) {
+    return __nv_fp8_e4m3(x).__x;
+  }
+};
+
+struct FromFP8 {
+  __device__ float operator()(uint8_t x) {
+    return float(*(__nv_fp8_e4m3*)(&x));
   }
 };
 

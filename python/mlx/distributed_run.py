@@ -5,6 +5,7 @@ import base64
 import ipaddress
 import json
 import os
+import platform
 import shlex
 import shutil
 import sys
@@ -19,6 +20,8 @@ from queue import Queue
 from select import select
 from subprocess import PIPE, Popen, run
 from typing import Optional
+
+import mlx.core as mx
 
 
 @dataclass
@@ -51,6 +54,11 @@ def parse_hardware_ports(ports_string):
             ports[port_name] = l.strip()[8:]
             port_name = None
     return ports
+
+
+def get_num_nvidia_gpus():
+    result = run(["nvidia-smi", "-L"], capture_output=True, text=True, check=True)
+    return len(result.stdout.strip().split("\n"))
 
 
 def extract_rings(hosts, index):
@@ -379,15 +387,40 @@ def launch_ring(parser, hosts, args, command):
         t.join()
 
 
+def get_mpi_libname():
+    try:
+        ompi_info = run(["which", "ompi_info"], check=True, capture_output=True)
+        ompi_info = ompi_info.stdout.strip().decode()
+
+        if platform.system() == "Darwin":
+            otool_output = run(
+                ["otool", "-L", ompi_info], check=True, capture_output=True
+            )
+        else:
+            otool_output = run(["ldd", ompi_info], check=True, capture_output=True)
+        otool_output = otool_output.stdout.decode()
+
+        # StopIteration if not found
+        libmpi_line = next(
+            filter(lambda line: "libmpi" in line, otool_output.splitlines())
+        )
+        return libmpi_line.strip().split()[0].removeprefix("@rpath/")
+    except:
+        return None
+
+
 def launch_mpi(parser, hosts, args, command):
     mpirun = run(["which", "mpirun"], check=True, capture_output=True)
     mpirun = mpirun.stdout.strip().decode()
 
-    # Homebrew libmpi doesn't work with anaconda python out of the box.
-    # TODO: Check if we should do this with every mpirun
-    if "homebrew" in mpirun:
+    # Compatibility with homebrew and pip installs
+    mpi_libname = get_mpi_libname()
+    if mpi_libname is not None:
         dyld = Path(mpirun).parent.parent / "lib"
-        args.env = [f"DYLD_LIBRARY_PATH={str(dyld)}"] + args.env
+        args.env = [
+            f"DYLD_LIBRARY_PATH={str(dyld)}",
+            f"MLX_MPI_LIBNAME={mpi_libname}",
+        ] + args.env
 
     log(args.verbose, f"Using '{mpirun}'")
     with tempfile.NamedTemporaryFile(mode="w") as f:
@@ -413,6 +446,57 @@ def launch_mpi(parser, hosts, args, command):
             run(cmd)
         except KeyboardInterrupt:
             pass
+
+
+def launch_nccl(parser, hosts, args, command):
+    master_host = hosts[0].ips[0]
+
+    if master_host != "127.0.0.1":
+        raise ValueError("The NCCL backend only supports localhost for now.")
+    master_port = args.nccl_port
+    world_size = len(hosts)
+
+    base_env = os.environ.copy()
+    base_env.update(
+        {
+            "NCCL_DEBUG": base_env.get(
+                "NCCL_DEBUG", "INFO" if args.verbose else "DEBUG"
+            ),
+            "NCCL_SOCKET_IFNAME": "lo",  # Use loopback for local communication
+            "NCCL_HOST_IP": master_host,
+            "NCCL_PORT": str(master_port),
+            "MLX_WORLD_SIZE": str(world_size),
+        }
+    )
+    procs = []
+    num_gpus = get_num_nvidia_gpus()
+    if num_gpus == 0:
+        raise RuntimeError("Cannot run NCCL backend with no GPUs.")
+    if args.repeat_hosts > num_gpus:
+        raise RuntimeError("NCCL requires a separate GPU per process.")
+
+    try:
+        for rank in range(world_size):
+            env = base_env.copy()
+            mlx_rank = str(rank % args.repeat_hosts)
+            env["MLX_RANK"] = mlx_rank
+            env["CUDA_VISIBLE_DEVICES"] = mlx_rank
+            p = Popen(command, env=env)
+            procs.append(p)
+
+        for p in procs:
+            ret = p.wait()
+            if ret != 0:
+                raise RuntimeError(f"Rank process exited with {ret}")
+
+    except (RuntimeError, KeyboardInterrupt) as err:
+        for p in procs:
+            if p.poll() is None:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+        raise
 
 
 def check_ssh_connections(hosts):
@@ -509,13 +593,16 @@ def prepare_tb_ring(args, hosts):
         name = ""
         ports = []
         for t in c["SPThunderboltDataType"]:
+            uuid = t.get("domain_uuid_key")
+            if uuid is None:
+                continue
             name = t["device_name_key"]
-            uuid = t["domain_uuid_key"]
             tag = t["receptacle_1_tag"]["receptacle_id_key"]
-            if items := t.get("_items", []):
-                connected_to = items[0]["domain_uuid_key"]
-            else:
-                connected_to = None
+            items = t.get("_items", [])
+            connected_items = [item for item in items if "domain_uuid_key" in item]
+            connected_to = (
+                connected_items[0]["domain_uuid_key"] if connected_items else None
+            )
             iface = iface_map[f"Thunderbolt {tag}"]
             ports.append(ThunderboltPort(iface, uuid, connected_to))
         tb_hosts.append(ThunderboltHost(name, sorted(ports, key=lambda x: x.iface)))
@@ -575,9 +662,17 @@ def prepare_tb_ring(args, hosts):
             if ip0 > 255:
                 raise ValueError("Ran out of available local IPs for the ring")
 
+    # Extract the host order from the first ring
+    hostmap = dict((r[0][0], r[1][0]) for r in rings[0])
+    first_host = min(hostmap.keys())
+    order = [first_host]
+    while hostmap[order[-1]] != first_host:
+        order.append(hostmap[order[-1]])
+
     # Create the hostfile
     hostfile = []
-    for i, h in enumerate(hosts):
+    for i in order:
+        h = hosts[i]
         host = {
             "ssh": h.ssh_hostname,
             "ips": [
@@ -665,8 +760,8 @@ def distributed_config():
     )
     parser.add_argument(
         "--backend",
-        choices=["ring", "mpi"],
-        default="ring",
+        choices=["ring", "mpi", "nccl"],
+        default="nccl" if mx.cuda.is_available() else "ring",
         help="Which distributed backend to configure",
     )
     parser.add_argument(
@@ -737,8 +832,8 @@ def main():
     parser.add_argument("--hostfile", help="The file containing the hosts")
     parser.add_argument(
         "--backend",
-        choices=["ring", "mpi"],
-        default="ring",
+        choices=["ring", "mpi", "nccl"],
+        default="nccl" if mx.cuda.is_available() else "ring",
         help="Which distributed backend to launch",
     )
     parser.add_argument(
@@ -769,9 +864,14 @@ def main():
     parser.add_argument(
         "--cwd", help="Set the working directory on each node to the provided one"
     )
+    parser.add_argument(
+        "--nccl-port",
+        type=int,
+        default=12345,
+        help="The port to use for the NCCL communication (only for nccl backend)",
+    )
+
     args, rest = parser.parse_known_args()
-    if rest[0] == "--":
-        rest.pop(0)
 
     if args.print_python:
         print(sys.executable)
@@ -799,8 +899,10 @@ def main():
     # Launch
     if args.backend == "ring":
         launch_ring(parser, hosts, args, rest)
-    elif args.backend == "mpi":
+    if args.backend == "mpi":
         launch_mpi(parser, hosts, args, rest)
+    if args.backend == "nccl":
+        launch_nccl(parser, hosts, args, rest)
 
 
 if __name__ == "__main__":

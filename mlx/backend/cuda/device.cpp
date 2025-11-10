@@ -14,10 +14,6 @@ namespace mlx::core::cu {
 
 namespace {
 
-// Can be tuned with MLX_MAX_OPS_PER_BUFFER
-// This should be less than 255
-constexpr int default_max_nodes_per_graph = 20;
-
 #define CHECK_CUDNN_ERROR(cmd) check_cudnn_error(#cmd, (cmd))
 
 void check_cudnn_error(const char* name, cudnnStatus_t err) {
@@ -27,11 +23,11 @@ void check_cudnn_error(const char* name, cudnnStatus_t err) {
   }
 }
 
-int cuda_graph_cache_size() {
-  static int cache_size = []() {
-    return env::get_var("MLX_CUDA_GRAPH_CACHE_SIZE", 100);
+bool use_cuda_graphs() {
+  static bool use_graphs = []() {
+    return env::get_var("MLX_USE_CUDA_GRAPHS", true);
   }();
-  return cache_size;
+  return use_graphs;
 }
 
 } // namespace
@@ -68,8 +64,8 @@ Device::~Device() {
 
 void Device::make_current() {
   // We need to set/get current CUDA device very frequently, cache it to reduce
-  // actual calls of CUDA APIs. This function assumes single-thread in host.
-  static int current = 0;
+  // actual calls of CUDA APIs.
+  static thread_local int current = 0;
   if (current != device_) {
     CHECK_CUDA_ERROR(cudaSetDevice(device_));
     current = device_;
@@ -86,14 +82,20 @@ CommandEncoder& Device::get_command_encoder(Stream s) {
 
 CommandEncoder::CaptureContext::CaptureContext(CommandEncoder& enc) : enc(enc) {
   enc.device().make_current();
+  if (!use_cuda_graphs()) {
+    return;
+  }
   CHECK_CUDA_ERROR(
       cudaStreamBeginCapture(enc.stream(), cudaStreamCaptureModeGlobal));
 }
 
 CommandEncoder::CaptureContext::~CaptureContext() {
-  CHECK_CUDA_ERROR(cudaStreamEndCapture(enc.stream(), &graph));
-  std::unique_ptr<cudaGraph_t, void (*)(cudaGraph_t*)> graph_freer(
-      &graph, [](cudaGraph_t* p) { CHECK_CUDA_ERROR(cudaGraphDestroy(*p)); });
+  if (!use_cuda_graphs()) {
+    enc.node_count_++;
+    return;
+  }
+
+  graph.end_capture(enc.stream());
   if (discard) {
     return;
   }
@@ -107,6 +109,9 @@ CommandEncoder::ConcurrentContext::ConcurrentContext(CommandEncoder& enc)
 
 CommandEncoder::ConcurrentContext::~ConcurrentContext() {
   enc.in_concurrent_ = false;
+  if (!use_cuda_graphs()) {
+    return;
+  }
 
   // Use an empty graph node for synchronization
   CommandEncoder::GraphNode empty{NULL, 'E', std::to_string(enc.node_count_++)};
@@ -185,29 +190,32 @@ void CommandEncoder::insert_graph_dependencies(std::vector<GraphNode> nodes) {
 }
 
 CommandEncoder::CommandEncoder(Device& d)
-    : device_(d), stream_(d), graph_cache_(cuda_graph_cache_size()) {
-  CHECK_CUDA_ERROR(cudaGraphCreate(&graph_, 0));
-}
+    : device_(d),
+      stream_(d),
+      graph_(d),
+      worker_(d),
+      graph_cache_("MLX_CUDA_GRAPH_CACHE_SIZE", /* default_capacity */ 400) {}
 
 void CommandEncoder::add_completed_handler(std::function<void()> task) {
   worker_.add_task(std::move(task));
 }
 
 void CommandEncoder::set_input_array(const array& arr) {
+  if (!use_cuda_graphs()) {
+    return;
+  }
   auto id = reinterpret_cast<std::uintptr_t>(arr.buffer().ptr());
   active_deps_.push_back(id);
 }
 
 void CommandEncoder::set_output_array(const array& arr) {
+  if (!use_cuda_graphs()) {
+    return;
+  }
+
   auto id = reinterpret_cast<std::uintptr_t>(arr.buffer().ptr());
   active_deps_.push_back(id);
   active_outputs_.push_back(id);
-}
-
-void CommandEncoder::maybe_commit() {
-  if (node_count_ >= env::max_ops_per_buffer(default_max_nodes_per_graph)) {
-    commit();
-  }
 }
 
 void CommandEncoder::add_kernel_node(
@@ -216,6 +224,12 @@ void CommandEncoder::add_kernel_node(
     dim3 block_dim,
     uint32_t smem_bytes,
     void** params) {
+  if (!use_cuda_graphs()) {
+    node_count_++;
+    CHECK_CUDA_ERROR(cudaLaunchKernel(
+        func, grid_dim, block_dim, params, smem_bytes, stream()));
+    return;
+  }
   cudaKernelNodeParams kernel_params = {0};
   kernel_params.func = func;
   kernel_params.gridDim = grid_dim;
@@ -231,6 +245,23 @@ void CommandEncoder::add_kernel_node(
     dim3 block_dim,
     uint32_t smem_bytes,
     void** params) {
+  if (!use_cuda_graphs()) {
+    node_count_++;
+    CHECK_CUDA_ERROR(cuLaunchKernel(
+        func,
+        grid_dim.x,
+        grid_dim.y,
+        grid_dim.z,
+        block_dim.x,
+        block_dim.y,
+        block_dim.z,
+        smem_bytes,
+        stream(),
+        params,
+        nullptr));
+    return;
+  }
+
   CUDA_KERNEL_NODE_PARAMS kernel_params = {0};
   kernel_params.func = func;
   kernel_params.gridDimX = grid_dim.x;
@@ -257,9 +288,21 @@ void CommandEncoder::add_kernel_node(const CUDA_KERNEL_NODE_PARAMS& params) {
 }
 
 void CommandEncoder::add_graph_node(cudaGraph_t child) {
+  if (!use_cuda_graphs()) {
+    node_count_++;
+    CudaGraphExec graph_exec;
+    graph_exec.instantiate(child);
+    device_.make_current();
+    CHECK_CUDA_ERROR(cudaGraphLaunch(graph_exec, stream()));
+    return;
+  }
   cudaGraphNode_t node;
   CHECK_CUDA_ERROR(cudaGraphAddChildGraphNode(&node, graph_, NULL, 0, child));
   insert_graph_dependencies(GraphNode{node, 'G'});
+}
+
+int CommandEncoder::get_num_ops() {
+  return node_count_;
 }
 
 void CommandEncoder::commit() {
@@ -267,10 +310,16 @@ void CommandEncoder::commit() {
   if (!temporaries_.empty()) {
     add_completed_handler([temporaries = std::move(temporaries_)]() {});
   }
-  if (node_count_ > 0) {
+  if (use_cuda_graphs() && node_count_ > 0) {
     if (!from_nodes_.empty()) {
       CHECK_CUDA_ERROR(cudaGraphAddDependencies(
-          graph_, from_nodes_.data(), to_nodes_.data(), from_nodes_.size()));
+          graph_,
+          from_nodes_.data(),
+          to_nodes_.data(),
+#if CUDART_VERSION >= 13000
+          nullptr, // edgeData
+#endif // CUDART_VERSION >= 13000
+          from_nodes_.size()));
     }
 
     graph_key_ += ".";
@@ -304,19 +353,18 @@ void CommandEncoder::commit() {
     CHECK_CUDA_ERROR(cudaGraphLaunch(graph_exec, stream_));
 
     // Reset state
-    node_count_ = 0;
     graph_node_count_ = 0;
     empty_node_count_ = 0;
     from_nodes_.clear();
     to_nodes_.clear();
     graph_key_.clear();
     node_map_.clear();
-    CHECK_CUDA_ERROR(cudaGraphDestroy(graph_));
-    CHECK_CUDA_ERROR(cudaGraphCreate(&graph_, 0));
+    graph_ = CudaGraph(device_);
   }
 
   // Put completion handlers in a batch.
   worker_.commit(stream_);
+  node_count_ = 0;
 }
 
 void CommandEncoder::synchronize() {

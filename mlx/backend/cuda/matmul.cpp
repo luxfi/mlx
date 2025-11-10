@@ -11,6 +11,7 @@
 #include <numeric>
 
 namespace mlx::core {
+
 namespace {
 
 std::tuple<bool, int64_t, array>
@@ -26,6 +27,80 @@ check_transpose(cu::CommandEncoder& enc, const Stream& s, const array& arr) {
     enc.add_temporary(arr_copy);
     return std::make_tuple(false, arr.shape(-1), arr_copy);
   }
+}
+
+void gemm_and_bias(
+    cu::CommandEncoder& encoder,
+    int M,
+    int N,
+    int K,
+    bool a_transposed,
+    int64_t lda,
+    bool b_transposed,
+    int64_t ldb,
+    array& out,
+    const array& a,
+    const array& b,
+    const std::optional<array>& bias = std::nullopt,
+    float alpha = 1.0f) {
+  // Check and collapse batch dimensions
+  auto [batch_shape, a_batch_strides, b_batch_strides] = collapse_batches(a, b);
+
+  auto batch_count = out.size() / (M * N);
+
+  // Collapse batches into M if needed
+  if (batch_count > 1 && !a_transposed && batch_shape.size() == 1 &&
+      a.strides()[a.ndim() - 2] == K && a_batch_strides.back() == M * K &&
+      b_batch_strides.back() == 0) {
+    M *= batch_shape.back();
+    batch_count = 1;
+
+    a_batch_strides = {0};
+    b_batch_strides = {0};
+    batch_shape = {1};
+  }
+
+  // Use gemmv when possible
+  if (!bias && cu::can_use_gemv(M, N, K, a_transposed, b_transposed)) {
+    cu::gemv(
+        a,
+        b,
+        out,
+        M,
+        N,
+        K,
+        batch_count,
+        batch_shape,
+        a_batch_strides,
+        b_batch_strides,
+        encoder);
+    return;
+  }
+
+  // Invoke cublasLt
+  CublasGemm gemm(
+      encoder.device(),
+      a.dtype(),
+      a_transposed,
+      M,
+      K,
+      lda,
+      b_transposed,
+      K,
+      N,
+      ldb,
+      batch_shape.back(),
+      a_batch_strides.back(),
+      b_batch_strides.back());
+  if (bias) {
+    if (a.dtype() == complex64) {
+      throw std::runtime_error(
+          "[gemm_and_bias] complex64 bias epilogue isn’t supported in cublasLtMatmul.");
+    }
+    gemm.set_bias(encoder, *bias);
+  }
+  gemm.run(
+      encoder, out, a, b, batch_shape, a_batch_strides, b_batch_strides, alpha);
 }
 
 } // namespace
@@ -46,10 +121,7 @@ void Matmul::eval_gpu(const std::vector<array>& inputs, array& out) {
     return;
   }
 
-  out.set_data(allocator::malloc(out.nbytes()));
-
-  /////////////////////////////////////////////////////////////////////////////
-  // Init checks and prep
+  out.set_data(cu::malloc_async(out.nbytes(), encoder.stream()));
 
   int M = a_pre.shape(-2);
   int N = b_pre.shape(-1);
@@ -60,58 +132,8 @@ void Matmul::eval_gpu(const std::vector<array>& inputs, array& out) {
   auto [a_transposed, lda, a] = check_transpose(encoder, s, a_pre);
   auto [b_transposed, ldb, b] = check_transpose(encoder, s, b_pre);
 
-  /////////////////////////////////////////////////////////////////////////////
-  // Check and collapse batch dimensions
-
-  auto [batch_shape, a_batch_strides, b_batch_strides] = collapse_batches(a, b);
-
-  auto batch_count = out.size() / (M * N);
-
-  // Collapse batches into M if needed
-  if (batch_count > 1 && !a_transposed && batch_shape.size() == 1 &&
-      a.strides()[a.ndim() - 2] == K && a_batch_strides.back() == M * K &&
-      b_batch_strides.back() == 0) {
-    M *= batch_shape.back();
-    batch_count = 1;
-
-    a_batch_strides = {0};
-    b_batch_strides = {0};
-    batch_shape = {1};
-  }
-
-  if (cu::can_use_gemv(M, N, K, a_transposed, b_transposed)) {
-    cu::gemv(
-        a,
-        b,
-        out,
-        M,
-        N,
-        K,
-        batch_count,
-        batch_shape,
-        a_batch_strides,
-        b_batch_strides,
-        encoder);
-    return;
-  }
-
-  /////////////////////////////////////////////////////////////////////////////
-  // Invoke cublasLt
-  CublasGemm gemm(
-      cu::device(s.device),
-      a.dtype(),
-      a_transposed,
-      M,
-      K,
-      lda,
-      b_transposed,
-      K,
-      N,
-      ldb,
-      batch_shape.back(),
-      a_batch_strides.back(),
-      b_batch_strides.back());
-  gemm.run(encoder, out, a, b, batch_shape, a_batch_strides, b_batch_strides);
+  gemm_and_bias(
+      encoder, M, N, K, a_transposed, lda, b_transposed, ldb, out, a, b);
 }
 
 void AddMM::eval_gpu(const std::vector<array>& inputs, array& out) {
@@ -136,16 +158,39 @@ void AddMM::eval_gpu(const std::vector<array>& inputs, array& out) {
   auto [a_transposed, lda, a] = check_transpose(encoder, s, a_pre);
   auto [b_transposed, ldb, b] = check_transpose(encoder, s, b_pre);
 
+  /////////////////////////////////////////////////////////////////////////////
+  // Dispatch to GEMM with epilogue or AddMM
+
+  if (beta_ == 1 && a.dtype() != complex64 && c.strides(-1) == 1 &&
+      c.data_size() == out.shape(-1)) {
+    out.set_data(cu::malloc_async(out.nbytes(), encoder.stream()));
+    gemm_and_bias(
+        encoder,
+        M,
+        N,
+        K,
+        a_transposed,
+        lda,
+        b_transposed,
+        ldb,
+        out,
+        a,
+        b,
+        c,
+        alpha_);
+    return;
+  }
+
   int64_t ldc;
   {
     auto stx = c.strides()[c.ndim() - 2];
     auto sty = c.strides()[c.ndim() - 1];
     if (sty == 1 && stx == c.shape(-1)) {
       ldc = stx;
-      out.set_data(allocator::malloc(out.nbytes()));
+      out.set_data(cu::malloc_async(out.nbytes(), encoder.stream()));
     } else if (sty == 1 && stx == 0) {
       ldc = 0;
-      out.set_data(allocator::malloc(out.nbytes()));
+      out.set_data(cu::malloc_async(out.nbytes(), encoder.stream()));
     } else {
       // Copy C into out and set C to out
       ldc = c.shape(-1);
@@ -177,7 +222,7 @@ void AddMM::eval_gpu(const std::vector<array>& inputs, array& out) {
   }
 
   /////////////////////////////////////////////////////////////////////////////
-  // Invoke cublasLt
+  // Invoke cublasLt with AddMM settings
 
   CublasGemm gemm(
       cu::device(s.device),

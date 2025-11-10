@@ -19,7 +19,8 @@ namespace mlx::core::cu {
 
 class Device;
 
-using KernelBuilderResult = std::pair<
+using KernelBuilderResult = std::tuple<
+    /* precompiled */ bool,
     /* source code */ std::string,
     /* kernel names */ std::vector<std::string>>;
 using KernelBuilder = std::function<KernelBuilderResult()>;
@@ -30,7 +31,7 @@ struct KernelArgs {
   }
 
   void append(const array& a) {
-    append(reinterpret_cast<CUdeviceptr>(a.data<void>()));
+    append(reinterpret_cast<CUdeviceptr>(gpu_ptr<void>(a)));
   }
 
   template <typename T>
@@ -43,6 +44,11 @@ struct KernelArgs {
   void append(SmallVector<T> vec) {
     storage_.emplace_back(std::move(vec));
     append_ptr(std::get<SmallVector<T>>(storage_.back()).data());
+  }
+
+  template <typename T>
+  void append(const std::vector<T>& vec) {
+    append(SmallVector<T>(vec.begin(), vec.end()));
   }
 
   // Make sure the arg is copied to an array with size of NDIM.
@@ -63,14 +69,16 @@ struct KernelArgs {
  private:
   std::vector<void*> args_;
 
-  // The cuLaunchKernel API requires passing pointers to arguments so store
-  // temporary values untill kernel is launched.
+  // The cuGraphAddKernelNode API requires passing pointers to arguments so
+  // store temporary values until the node is created.
   using Arg = std::variant<
       std::monostate,
       CUdeviceptr,
+      bool,
       int32_t,
       uint32_t,
       int64_t,
+      float,
       SmallVector<const void*>,
       SmallVector<int32_t>,
       SmallVector<int64_t>>;
@@ -82,16 +90,22 @@ class JitModule {
   JitModule(
       Device& device,
       const std::string& module_name,
-      const KernelBuilder& builder);
+      const KernelBuilder& builder,
+      bool cache);
   ~JitModule();
 
   JitModule(const JitModule&) = delete;
   JitModule& operator=(const JitModule&) = delete;
-  CUfunction get_kernel(const std::string& kernel_name);
+  CUfunction get_kernel(
+      const std::string& kernel_name,
+      std::function<void(CUfunction)> configure_kernel = nullptr);
+  std::pair<CUfunction, uint> get_kernel_and_dims(
+      const std::string& kernel_name,
+      std::function<void(CUfunction)> configure_kernel = nullptr);
 
  private:
   CUmodule module_{nullptr};
-  std::unordered_map<std::string, CUfunction> kernels_;
+  std::unordered_map<std::string, std::tuple<CUfunction, bool, uint>> kernels_;
 };
 
 std::unordered_map<std::string, JitModule>& get_jit_module_cache();
@@ -99,6 +113,7 @@ std::unordered_map<std::string, JitModule>& get_jit_module_cache();
 JitModule& get_jit_module(
     const mlx::core::Device& device,
     const std::string& name,
-    const KernelBuilder& builder);
+    const KernelBuilder& builder,
+    bool use_disk_cache = true);
 
 } // namespace mlx::core::cu

@@ -320,6 +320,7 @@ void init_array(nb::module_& m) {
       .def_prop_ro(
           "shape",
           [](const mx::array& a) { return nb::cast(a.shape()); },
+          nb::sig("def shape(self) -> tuple[int, ...]"),
           R"pbdoc(
           The shape of the array as a Python tuple.
 
@@ -347,6 +348,7 @@ void init_array(nb::module_& m) {
       .def(
           "item",
           &to_scalar,
+          nb::sig("def item(self) -> scalar"),
           R"pbdoc(
             Access the value of a scalar array.
 
@@ -356,6 +358,7 @@ void init_array(nb::module_& m) {
       .def(
           "tolist",
           &tolist,
+          nb::sig("def tolist(self) -> list_or_scalar"),
           R"pbdoc(
             Convert the array to a Python :class:`list`.
 
@@ -463,12 +466,37 @@ void init_array(nb::module_& m) {
           })
       .def(
           "__iter__", [](const mx::array& a) { return ArrayPythonIterator(a); })
-      .def("__getstate__", &mlx_to_np_array)
+      .def(
+          "__getstate__",
+          [](const mx::array& a) {
+            auto nd = (a.dtype() == mx::bfloat16)
+                ? mlx_to_np_array(mx::view(a, mx::uint16))
+                : mlx_to_np_array(a);
+            return nb::make_tuple(nd, static_cast<uint8_t>(a.dtype().val()));
+          })
       .def(
           "__setstate__",
-          [](mx::array& arr,
-             const nb::ndarray<nb::ro, nb::c_contig, nb::device::cpu>& state) {
-            new (&arr) mx::array(nd_array_to_mlx(state, std::nullopt));
+          [](mx::array& arr, const nb::tuple& state) {
+            if (nb::len(state) != 2) {
+              throw std::invalid_argument(
+                  "Invalid pickle state: expected (ndarray, Dtype::Val)");
+            }
+            using ND = nb::ndarray<nb::ro, nb::c_contig, nb::device::cpu>;
+            ND nd = nb::cast<ND>(state[0]);
+            auto val = static_cast<mx::Dtype::Val>(nb::cast<uint8_t>(state[1]));
+            if (val == mx::Dtype::Val::bfloat16) {
+              auto owner = nb::handle(state[0].ptr());
+              new (&arr) mx::array(nd_array_to_mlx(
+                  ND(nd.data(),
+                     nd.ndim(),
+                     reinterpret_cast<const size_t*>(nd.shape_ptr()),
+                     owner,
+                     nullptr,
+                     nb::bfloat16),
+                  mx::bfloat16));
+            } else {
+              new (&arr) mx::array(nd_array_to_mlx(nd, std::nullopt));
+            }
           })
       .def("__dlpack__", [](const mx::array& a) { return mlx_to_dlpack(a); })
       .def(
@@ -1247,10 +1275,7 @@ void init_array(nb::module_& m) {
             if (axis) {
               return mx::logcumsumexp(a, *axis, reverse, inclusive, s);
             } else {
-              // TODO: Implement that in the C++ API as well. See concatenate
-              // above.
-              return mx::logcumsumexp(
-                  mx::reshape(a, {-1}, s), 0, reverse, inclusive, s);
+              return mx::logcumsumexp(a, reverse, inclusive, s);
             }
           },
           "axis"_a = nb::none(),
@@ -1380,9 +1405,7 @@ void init_array(nb::module_& m) {
             if (axis) {
               return mx::cumsum(a, *axis, reverse, inclusive, s);
             } else {
-              // TODO: Implement that in the C++ API as well. See concatenate
-              // above.
-              return mx::cumsum(reshape(a, {-1}, s), 0, reverse, inclusive, s);
+              return mx::cumsum(a, reverse, inclusive, s);
             }
           },
           "axis"_a = nb::none(),
@@ -1401,10 +1424,7 @@ void init_array(nb::module_& m) {
             if (axis) {
               return mx::cumprod(a, *axis, reverse, inclusive, s);
             } else {
-              // TODO: Implement that in the C++ API as well. See concatenate
-              // above.
-              return mx::cumprod(
-                  mx::reshape(a, {-1}, s), 0, reverse, inclusive, s);
+              return mx::cumprod(a, reverse, inclusive, s);
             }
           },
           "axis"_a = nb::none(),
@@ -1423,10 +1443,7 @@ void init_array(nb::module_& m) {
             if (axis) {
               return mx::cummax(a, *axis, reverse, inclusive, s);
             } else {
-              // TODO: Implement that in the C++ API as well. See concatenate
-              // above.
-              return mx::cummax(
-                  mx::reshape(a, {-1}, s), 0, reverse, inclusive, s);
+              return mx::cummax(a, reverse, inclusive, s);
             }
           },
           "axis"_a = nb::none(),
@@ -1445,10 +1462,7 @@ void init_array(nb::module_& m) {
             if (axis) {
               return mx::cummin(a, *axis, reverse, inclusive, s);
             } else {
-              // TODO: Implement that in the C++ API as well. See concatenate
-              // above.
-              return mx::cummin(
-                  mx::reshape(a, {-1}, s), 0, reverse, inclusive, s);
+              return mx::cummin(a, reverse, inclusive, s);
             }
           },
           "axis"_a = nb::none(),

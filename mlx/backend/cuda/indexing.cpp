@@ -31,7 +31,7 @@ void append_indices_arg(
     int idx_ndim) {
   SmallVector<const void*> indices(nidx);
   for (int i = 0; i < nidx; ++i) {
-    indices[i] = inputs[i + 1].data<void>();
+    indices[i] = gpu_ptr<void>(inputs[i + 1]);
   }
   args.append(std::move(indices));
   SmallVector<int32_t> indices_shape(nidx * idx_ndim);
@@ -59,7 +59,9 @@ void Gather::eval_gpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() > 0);
   const auto& src = inputs[0];
 
-  out.set_data(allocator::malloc(out.nbytes()));
+  auto& s = stream();
+  auto& encoder = cu::get_command_encoder(s);
+  out.set_data(cu::malloc_async(out.nbytes(), encoder.stream()));
   if (out.size() == 0) {
     return;
   }
@@ -80,7 +82,6 @@ void Gather::eval_gpu(const std::vector<array>& inputs, array& out) {
       dtype_to_string(idx_dtype),
       nidx);
 
-  auto& s = stream();
   cu::JitModule& mod = cu::get_jit_module(s.device, module_name, [&]() {
     std::vector<std::string> kernel_names;
     for (int ndim = 0; ndim <= MAX_NDIM; ++ndim) {
@@ -94,7 +95,7 @@ void Gather::eval_gpu(const std::vector<array>& inputs, array& out) {
             large ? "int64_t" : "int32_t"));
       }
     }
-    return std::make_pair(jit_source_gather, std::move(kernel_names));
+    return std::make_tuple(false, jit_source_gather, std::move(kernel_names));
   });
 
   cu::KernelArgs args;
@@ -110,7 +111,7 @@ void Gather::eval_gpu(const std::vector<array>& inputs, array& out) {
   args.append<int32_t>(src.ndim());
   args.append_ndim(slice_sizes_);
   args.append(slice_size);
-  args.append(SmallVector<int32_t>(axes_.begin(), axes_.end()));
+  args.append(axes_);
   append_indices_arg(args, inputs, nidx, idx_ndim);
 
   std::string kernel_name = fmt::format(
@@ -121,7 +122,6 @@ void Gather::eval_gpu(const std::vector<array>& inputs, array& out) {
       idx_ndim,
       large ? "int64_t" : "int32_t");
 
-  auto& encoder = cu::get_command_encoder(s);
   for (const auto& in : inputs) {
     encoder.set_input_array(in);
   }
@@ -189,7 +189,7 @@ void Scatter::eval_gpu(const std::vector<array>& inputs, array& out) {
             large ? "int64_t" : "int32_t"));
       }
     }
-    return std::make_pair(jit_source_scatter, std::move(kernel_names));
+    return std::make_tuple(false, jit_source_scatter, std::move(kernel_names));
   });
 
   cu::KernelArgs args;
@@ -211,7 +211,7 @@ void Scatter::eval_gpu(const std::vector<array>& inputs, array& out) {
   args.append_ndim(out.shape());
   args.append_ndim(out.strides());
   args.append<int32_t>(out.ndim());
-  args.append(SmallVector<int32_t>(axes_.begin(), axes_.end()));
+  args.append(axes_);
   append_indices_arg(args, inputs, nidx, idx_ndim);
 
   std::string kernel_name = fmt::format(
@@ -239,7 +239,9 @@ void GatherAxis::eval_gpu(const std::vector<array>& inputs, array& out) {
   const auto& src = inputs[0];
   const auto& idx = inputs[1];
 
-  out.set_data(allocator::malloc(out.nbytes()));
+  auto& s = stream();
+  auto& encoder = cu::get_command_encoder(s);
+  out.set_data(cu::malloc_async(out.nbytes(), encoder.stream()));
   if (out.size() == 0) {
     return;
   }
@@ -251,7 +253,6 @@ void GatherAxis::eval_gpu(const std::vector<array>& inputs, array& out) {
       dtype_to_string(out.dtype()),
       dtype_to_string(idx.dtype()));
 
-  auto& s = stream();
   cu::JitModule& mod = cu::get_jit_module(s.device, module_name, [&]() {
     std::vector<std::string> kernel_names;
     for (int ndim = 0; ndim <= MAX_NDIM; ++ndim) {
@@ -268,7 +269,8 @@ void GatherAxis::eval_gpu(const std::vector<array>& inputs, array& out) {
         }
       }
     }
-    return std::make_pair(jit_source_gather_axis, std::move(kernel_names));
+    return std::make_tuple(
+        false, jit_source_gather_axis, std::move(kernel_names));
   });
 
   size_t idx_size_pre = 1;
@@ -311,7 +313,6 @@ void GatherAxis::eval_gpu(const std::vector<array>& inputs, array& out) {
       idx.flags().row_contiguous,
       large ? "int64_t" : "int32_t");
 
-  auto& encoder = cu::get_command_encoder(s);
   for (const auto& in : inputs) {
     encoder.set_input_array(in);
   }
@@ -371,7 +372,8 @@ void ScatterAxis::eval_gpu(const std::vector<array>& inputs, array& out) {
         }
       }
     }
-    return std::make_pair(jit_source_scatter_axis, std::move(kernel_names));
+    return std::make_tuple(
+        false, jit_source_scatter_axis, std::move(kernel_names));
   });
 
   size_t idx_size_pre = 1;

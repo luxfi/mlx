@@ -13,7 +13,8 @@ void CublasGemm::run_batched(
     const array& b,
     const Shape& batch_shape,
     const Strides& a_batch_strides,
-    const Strides& b_batch_strides) {
+    const Strides& b_batch_strides,
+    float alpha) {
   encoder.set_input_array(a);
   encoder.set_input_array(b);
   encoder.set_output_array(out);
@@ -24,10 +25,12 @@ void CublasGemm::run_batched(
   for (size_t i = 0; i < nbatch; ++i) {
     execute(
         encoder,
-        out.data<int8_t>() + out.itemsize() * i * batch_shape.back() * M_ * N_,
-        a.data<int8_t>() + a.itemsize() * a_it.loc,
-        b.data<int8_t>() + b.itemsize() * b_it.loc,
-        nullptr);
+        gpu_ptr<int8_t>(out) +
+            out.itemsize() * i * batch_shape.back() * M_ * N_,
+        gpu_ptr<int8_t>(a) + a.itemsize() * a_it.loc,
+        gpu_ptr<int8_t>(b) + b.itemsize() * b_it.loc,
+        nullptr,
+        alpha);
     a_it.step();
     b_it.step();
   }
@@ -58,10 +61,11 @@ void CublasGemm::run_batched(
   for (size_t i = 0; i < nbatch; ++i) {
     execute(
         encoder,
-        out.data<int8_t>() + out.itemsize() * i * batch_shape.back() * M_ * N_,
-        a.data<int8_t>() + a.itemsize() * a_it.loc,
-        b.data<int8_t>() + b.itemsize() * b_it.loc,
-        c.data<int8_t>() + c.itemsize() * c_it.loc,
+        gpu_ptr<int8_t>(out) +
+            out.itemsize() * i * batch_shape.back() * M_ * N_,
+        gpu_ptr<int8_t>(a) + a.itemsize() * a_it.loc,
+        gpu_ptr<int8_t>(b) + b.itemsize() * b_it.loc,
+        gpu_ptr<int8_t>(c) + c.itemsize() * c_it.loc,
         alpha,
         beta);
     a_it.step();

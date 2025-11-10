@@ -24,13 +24,10 @@ namespace mlx::core {
   }
 
 NO_GPU(BlockMaskedMM)
-NO_GPU(DynamicSlice)
-NO_GPU(DynamicSliceUpdate)
 NO_GPU(FFT)
 NO_GPU(GatherMM)
 NO_GPU(GatherQMM)
 NO_GPU(Hadamard)
-NO_GPU(Load)
 NO_GPU_MULTI(LUF)
 NO_GPU_MULTI(QRF)
 NO_GPU(QuantizedMatmul)
@@ -41,13 +38,7 @@ NO_GPU(Cholesky)
 NO_GPU_MULTI(Eig)
 NO_GPU_MULTI(Eigh)
 
-namespace fast {
-NO_GPU_MULTI(CustomKernel)
-} // namespace fast
-
 namespace distributed {
-NO_GPU_MULTI(AllReduce)
-NO_GPU_MULTI(AllGather)
 NO_GPU_MULTI(Send)
 NO_GPU_MULTI(Recv)
 } // namespace distributed

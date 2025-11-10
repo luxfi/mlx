@@ -154,7 +154,8 @@ NO_GPU_USE_FALLBACK(RMSNorm)
 NO_GPU_MULTI(RMSNormVJP)
 NO_GPU_USE_FALLBACK(RoPE)
 NO_GPU(ScaledDotProductAttention)
-NO_GPU_MULTI(AffineQuantize)
+NO_GPU_MULTI(ConvertFP8)
+NO_GPU_MULTI(Quantize)
 NO_GPU_MULTI(CustomKernel)
 } // namespace fast
 
@@ -163,6 +164,7 @@ NO_GPU_MULTI(AllReduce)
 NO_GPU_MULTI(AllGather)
 NO_GPU_MULTI(Send)
 NO_GPU_MULTI(Recv)
+NO_GPU_MULTI(ReduceScatter)
 } // namespace distributed
 
 } // namespace mlx::core

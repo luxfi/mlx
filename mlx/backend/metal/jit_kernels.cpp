@@ -144,8 +144,7 @@ MTL::ComputePipelineState* get_ternary_kernel(
     auto t_str = get_type_string(type);
     std::string kernel_source = metal::utils();
     concatenate(kernel_source, metal::ternary_ops(), metal::ternary());
-    const std::array<std::pair<std::string, std::string>, 4> kernel_types = {{
-        {"v2", "ternary_v2"},
+    const std::array<std::pair<std::string, std::string>, 3> kernel_types = {{
         {"g1large", "ternary_g_nd1"},
         {"g2large", "ternary_g_nd2"},
         {"g3large", "ternary_g_nd3"},
@@ -154,13 +153,29 @@ MTL::ComputePipelineState* get_ternary_kernel(
       kernel_source +=
           get_template_definition(name + "_" + lib_name, func, t_str, op);
     }
+
+    kernel_source += get_template_definition(
+        "v2_" + lib_name, "ternary_v2", t_str, op, false, false);
+    kernel_source += get_template_definition(
+        "sv2_" + lib_name, "ternary_v2", t_str, op, true, false);
+    kernel_source += get_template_definition(
+        "vs2_" + lib_name, "ternary_v2", t_str, op, false, true);
+
     if (get_work_per_thread(type) > 1) {
-      kernel_source +=
-          get_template_definition("vn_" + lib_name, "ternary_v", t_str, op);
+      kernel_source += get_template_definition(
+          "vn_" + lib_name, "ternary_v", t_str, op, false, false);
+      kernel_source += get_template_definition(
+          "svn_" + lib_name, "ternary_v", t_str, op, true, false);
+      kernel_source += get_template_definition(
+          "vsn_" + lib_name, "ternary_v", t_str, op, false, true);
     }
 
-    kernel_source +=
-        get_template_definition("v_" + lib_name, "ternary_v", t_str, op, 1);
+    kernel_source += get_template_definition(
+        "v_" + lib_name, "ternary_v", t_str, op, false, false, 1);
+    kernel_source += get_template_definition(
+        "sv_" + lib_name, "ternary_v", t_str, op, true, false, 1);
+    kernel_source += get_template_definition(
+        "vs_" + lib_name, "ternary_v", t_str, op, false, true, 1);
     kernel_source += get_template_definition(
         "g1_" + lib_name, "ternary_g_nd1", t_str, op, "int");
     kernel_source += get_template_definition(
@@ -804,13 +819,19 @@ MTL::ComputePipelineState* get_fft_kernel(
 MTL::ComputePipelineState* get_quantized_kernel(
     metal::Device& d,
     const std::string& kernel_name,
-    const std::string& template_def) {
+    const std::string& template_def,
+    const std::string& mode) {
   const auto& lib_name = kernel_name;
   auto lib = d.get_library(lib_name, [&]() {
-    std::ostringstream kernel_source;
-    kernel_source << metal::utils() << metal::gemm() << metal::quantized()
-                  << template_def;
-    return kernel_source.str();
+    std::string kernel_source;
+    concatenate(
+        kernel_source,
+        metal::utils(),
+        metal::gemm(),
+        metal::quantized_utils(),
+        (mode == "affine") ? metal::quantized() : metal::fp_quantized(),
+        template_def);
+    return kernel_source;
   });
   return d.get_kernel(kernel_name, lib);
 }
@@ -823,6 +844,7 @@ MTL::ComputePipelineState* get_gather_qmm_kernel(
     const array& x,
     int group_size,
     int bits,
+    const std::string& mode,
     int bm,
     int bn,
     int bk,
@@ -833,13 +855,14 @@ MTL::ComputePipelineState* get_gather_qmm_kernel(
   auto lib = d.get_library(lib_name, [&]() {
     std::string kernel_source;
     concatenate(
+        kernel_source, metal::utils(), metal::quantized_utils(), metal::gemm());
+    bool is_affine = mode == "affine";
+    concatenate(
         kernel_source,
-        metal::utils(),
-        metal::gemm(),
-        metal::quantized(),
+        is_affine ? metal::quantized() : metal::fp_quantized(),
         get_template_definition(
             lib_name,
-            "gather_qmm_rhs",
+            (is_affine ? "affine" : "fp") + std::string("_gather_qmm_rhs"),
             get_type_string(x.dtype()),
             group_size,
             bits,

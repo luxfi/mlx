@@ -556,7 +556,7 @@ class AdamW(Adam):
         eps (float, optional): The term :math:`\epsilon` added to the
           denominator to improve numerical stability. Default: ``1e-8``
         weight_decay (float, optional): The weight decay :math:`\lambda`.
-          Default: ``0``.
+          Default: ``0.01``.
         bias_correction (bool, optional): If set to ``True``, bias correction
           is applied. Default: ``False``
     """
@@ -971,10 +971,6 @@ def clip_grad_norm(grads, max_norm):
     """
     norm_squared = tree_reduce(lambda acc, g: acc + g.square().sum(), grads, 0.0)
     total_norm = mx.sqrt(norm_squared)
-    normalizer = max_norm / (total_norm + 1e-6)
-
-    def clipper(g):
-        return mx.where(total_norm < max_norm, g, g * normalizer)
-
-    clipped_grads = tree_map(clipper, grads)
+    normalizer = mx.minimum(max_norm / (total_norm + 1e-6), 1.0)
+    clipped_grads = tree_map(lambda g: g * normalizer, grads)
     return clipped_grads, total_norm

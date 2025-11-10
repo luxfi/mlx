@@ -129,7 +129,8 @@ NO_CPU(Inverse)
 NO_CPU(View)
 
 namespace fast {
-NO_CPU_MULTI(AffineQuantize)
+NO_CPU_MULTI(Quantize)
+NO_CPU_MULTI(ConvertFP8)
 } // namespace fast
 
 namespace distributed {
@@ -137,6 +138,7 @@ NO_CPU_MULTI(AllReduce)
 NO_CPU_MULTI(AllGather)
 NO_CPU_MULTI(Send)
 NO_CPU_MULTI(Recv)
+NO_CPU_MULTI(ReduceScatter)
 } // namespace distributed
 
 } // namespace mlx::core

@@ -18,16 +18,17 @@ jobs:
         type: boolean
         default: false
     macos:
-      xcode: "16.2.0"
-    resource_class: m2pro.medium
+      xcode: "26.0.0"
+    resource_class: m4pro.medium
     steps:
       - checkout
       - run:
           name: Install
           command: |
-            brew install python@3.9
+            xcodebuild -downloadComponent MetalToolchain
+            brew install python@3.10
             brew install doxygen
-            python3.9 -m venv env
+            python3.10 -m venv env
             source env/bin/activate
             pip install --upgrade pip
             pip install --upgrade cmake
@@ -89,7 +90,8 @@ jobs:
           command: |
             uv venv
             uv pip install cmake
-            uv pip install -e ".[dev]" -v
+            DEBUG=1 CMAKE_ARGS="-DCMAKE_COMPILE_WARNING_AS_ERROR=ON" \
+              uv pip install -e ".[dev]" -v
       - run:
           name: Generate package stubs
           command: |
@@ -118,7 +120,7 @@ jobs:
     parameters:
       xcode_version:
         type: string
-        default: "16.2.0"
+        default: "26.0.0"
       macosx_deployment_target:
         type: string
         default: ""
@@ -126,18 +128,19 @@ jobs:
       xcode: << parameters.xcode_version >>
     environment:
       MACOSX_DEPLOYMENT_TARGET: << parameters.macosx_deployment_target >>
-    resource_class: m2pro.medium
+    resource_class: m4pro.medium
     steps:
       - checkout
       - run:
           name: Install dependencies
           command: |
+            xcodebuild -downloadComponent MetalToolchain
             HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 \
               brew install openmpi uv
       - run:
           name: Install Python package
           command: |
-            uv venv --python 3.9
+            uv venv --python 3.10
             uv pip install \
               nanobind==2.4.0 \
               cmake \
@@ -196,7 +199,7 @@ jobs:
           name: Run Python tests with JIT
           command: |
             CMAKE_ARGS="-DMLX_METAL_JIT=ON" \
-              uv pip install -e .
+              uv pip install -e . -v
             LOW_MEMORY=1 DEVICE=gpu METAL_DEVICE_WRAPPER_TYPE=1 \
               METAL_DEBUG_ERROR_MODE=0 \
               uv run --no-project python -m xmlrunner discover \
@@ -222,15 +225,20 @@ jobs:
             sudo apt-get update
             sudo apt-get install libcudnn9-dev-cuda-12
             sudo apt-get install libblas-dev liblapack-dev liblapacke-dev
+            sudo apt-get install libnccl2 libnccl-dev
             curl -sL https://github.com/ccache/ccache/releases/download/v4.11.3/ccache-4.11.3-linux-x86_64.tar.xz | tar xJf -
             sudo mv ccache-4.11.3-linux-x86_64/ccache /usr/bin/ccache
             rm -rf ccache-4.11.3-linux-x86_64
             curl -LsSf https://astral.sh/uv/install.sh | sh
       - run:
+          name: Set CCache size
+          command: ccache --max-size 1G
+      - run:
           name: Install Python package
           command: |
             uv venv
-            CMAKE_ARGS="-DMLX_BUILD_CUDA=ON -DCMAKE_CUDA_COMPILER=`which nvcc`" \
+            uv pip install cmake
+            DEBUG=1 CMAKE_ARGS="-DMLX_BUILD_CUDA=ON -DCMAKE_COMPILE_WARNING_AS_ERROR=ON -DCMAKE_CUDA_COMPILER=`which nvcc`" \
               uv pip install -e ".[dev]" -v
       - run:
           name: Run Python tests
@@ -239,11 +247,22 @@ jobs:
             LOW_MEMORY=1 DEVICE=cpu python -m unittest discover python/tests -v
             LOW_MEMORY=1 DEVICE=gpu python -m tests discover python/tests -v
       - run:
+          name: Build CPP only
+          command: |
+            source .venv/bin/activate
+            cmake . -B build \
+              -DMLX_BUILD_CUDA=ON \
+              -DCMAKE_CUDA_COMPILER=`which nvcc` \
+              -DCMAKE_BUILD_TYPE=DEBUG
+            cmake --build build -j `nproc`
+      - run:
+          name: Run CPP tests
+          command: ./build/tests/tests -sfe="*fft_tests.cpp,*linalg_tests.cpp"
+      - run:
           name: CCache report
           command: |
             ccache --show-stats
             ccache --zero-stats
-            ccache --max-size 400MB
             ccache --cleanup
       - save_cache:
           key: cuda-<< parameters.image_date >>-{{ arch }}-{{ epoch }}
@@ -254,10 +273,10 @@ jobs:
     parameters:
       python_version:
         type: string
-        default: "3.9"
+        default: "3.10"
       xcode_version:
         type: string
-        default: "16.2.0"
+        default: "26.0.0"
       build_env:
         type: string
         default: ""
@@ -266,7 +285,7 @@ jobs:
         default: ""
     macos:
       xcode: << parameters.xcode_version >>
-    resource_class: m2pro.medium
+    resource_class: m4pro.medium
     environment:
       MACOSX_DEPLOYMENT_TARGET: << parameters.macosx_deployment_target >>
     steps:
@@ -274,11 +293,15 @@ jobs:
       - run:
           name: Install dependencies
           command: |
-            brew install python@<< parameters.python_version >>
-            brew install openmpi
-            python<< parameters.python_version >> -m venv env
-            source env/bin/activate
-            pip install --upgrade pip
+            xcodebuild -downloadComponent MetalToolchain
+            mkdir -p ~/miniconda3
+            curl https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh -o ~/miniconda3/miniconda.sh
+            bash ~/miniconda3/miniconda.sh -b -u -p ~/miniconda3
+            rm ~/miniconda3/miniconda.sh
+            source ~/miniconda3/bin/activate
+            conda init --all
+            conda create -n env python=<< parameters.python_version >> -y
+            conda activate env
             pip install --upgrade cmake
             pip install nanobind==2.4.0
             pip install --upgrade setuptools
@@ -288,29 +311,29 @@ jobs:
       - run:
           name: Install Python package
           command: |
-            source env/bin/activate
+            conda activate env
             env -u MACOSX_DEPLOYMENT_TARGET DEV_RELEASE=1 \
               pip install . -v
       - run:
           name: Generate package stubs
           command: |
-            source env/bin/activate
+            conda activate env
             pip install typing_extensions
             python setup.py generate_stubs
       - run:
           name: Build Python package
           command: |
-            source env/bin/activate
+            conda activate env
             python setup.py clean --all
             << parameters.build_env >> MLX_BUILD_STAGE=1 python -m build -w
       - when:
           condition:
-            equal: ["3.9", << parameters.python_version >>]
+            equal: ["3.10", << parameters.python_version >>]
           steps:
             - run:
                 name: Build common package
                 command: |
-                  source env/bin/activate
+                  conda activate env
                   python setup.py clean --all
                   << parameters.build_env >> MLX_BUILD_STAGE=2 python -m build -w
       - when:
@@ -319,7 +342,7 @@ jobs:
             - run:
                 name: Upload package
                 command: |
-                  source env/bin/activate
+                  conda activate env
                   twine upload dist/*
       - store_artifacts:
           path: dist/
@@ -328,7 +351,7 @@ jobs:
     parameters:
       python_version:
         type: string
-        default: "3.9"
+        default: "3.10"
       build_env:
         type: string
         default: ""
@@ -364,7 +387,7 @@ jobs:
             bash python/scripts/repair_linux.sh
       - when:
           condition:
-            equal: ["3.9", << parameters.python_version >>]
+            equal: ["3.10", << parameters.python_version >>]
           steps:
             - run:
                 name: Build common package
@@ -392,7 +415,7 @@ jobs:
         default: ""
     machine:
       image: ubuntu-2204:current
-      resource_class: large
+      resource_class: xlarge
     steps:
       - checkout
       - run:
@@ -439,7 +462,7 @@ workflows:
       - mac_build_and_test:
           matrix:
             parameters:
-              macosx_deployment_target: ["13.5", "14.0"]
+              macosx_deployment_target: ["13.5", "15.0"]
       - linux_build_and_test
       - cuda_build_and_test:
           matrix:
@@ -461,71 +484,10 @@ workflows:
               ignore: /.*/
           matrix:
             parameters:
-              python_version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+              python_version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
               macosx_deployment_target: ["13.5", "14.0", "15.0"]
               build_env: ["PYPI_RELEASE=1"]
-              xcode_version: ["16.2.0", "15.0.0"]
-            exclude:
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.9"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.10"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.11"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.12"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.13"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.9"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.10"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.11"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.12"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.13"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.9"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.10"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.11"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.12"
-                build_env: "PYPI_RELEASE=1"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.13"
-                build_env: "PYPI_RELEASE=1"
+              xcode_version: ["26.0.0"]
       - build_documentation:
           filters:
             tags:
@@ -541,7 +503,7 @@ workflows:
               ignore: /.*/
           matrix:
             parameters:
-              python_version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+              python_version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
               build_env: ["PYPI_RELEASE=1"]
       - build_cuda_release:
           filters:
@@ -567,7 +529,7 @@ workflows:
           requires: [ hold ]
           matrix:
             parameters:
-              macosx_deployment_target: ["13.5", "14.0"]
+              macosx_deployment_target: ["13.5", "15.0"]
       - linux_build_and_test:
           requires: [ hold ]
       - cuda_build_and_test:
@@ -584,59 +546,13 @@ workflows:
       - build_release:
           matrix:
             parameters:
-              python_version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+              python_version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
               macosx_deployment_target: ["13.5", "14.0", "15.0"]
-              xcode_version: ["16.2.0", "15.0.0"]
-            exclude:
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.9"
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.10"
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.11"
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.12"
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.13"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.9"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.10"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.11"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.12"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.13"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.9"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.10"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.11"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.12"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.13"
+              xcode_version: ["26.0.0"]
       - build_linux_release:
           matrix:
             parameters:
-              python_version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+              python_version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
       - build_cuda_release
 
   build_dev_release:
@@ -648,75 +564,14 @@ workflows:
       - build_release:
           matrix:
             parameters:
-              python_version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+              python_version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
               macosx_deployment_target: ["13.5", "14.0", "15.0"]
               build_env: ["DEV_RELEASE=1"]
-              xcode_version: ["16.2.0", "15.0.0"]
-            exclude:
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.9"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.10"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.11"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.12"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "13.5"
-                xcode_version: "16.2.0"
-                python_version: "3.13"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.9"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.10"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.11"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.12"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "14.0"
-                xcode_version: "15.0.0"
-                python_version: "3.13"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.9"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.10"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.11"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.12"
-                build_env: "DEV_RELEASE=1"
-              - macosx_deployment_target: "15.0"
-                xcode_version: "15.0.0"
-                python_version: "3.13"
-                build_env: "DEV_RELEASE=1"
+              xcode_version: ["26.0.0"]
       - build_linux_release:
           matrix:
             parameters:
-              python_version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+              python_version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
               build_env: ["DEV_RELEASE=1"]
       - build_cuda_release:
           matrix:

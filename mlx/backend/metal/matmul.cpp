@@ -8,6 +8,7 @@
 #include "mlx/backend/common/broadcasting.h"
 #include "mlx/backend/common/matmul.h"
 #include "mlx/backend/gpu/copy.h"
+#include "mlx/backend/metal/binary.h"
 #include "mlx/backend/metal/device.h"
 #include "mlx/backend/metal/kernels.h"
 #include "mlx/backend/metal/kernels/defines.h"
@@ -86,7 +87,13 @@ ensure_batch_contiguous(const array& x, metal::Device& d, const Stream& s) {
 
 #define GEMM_TPARAM_MACRO(devc)                                           \
   if (devc == 'g' || devc == 'p') { /* Small device */                    \
-    if (!transpose_a && transpose_b) { /* nt */                           \
+    if (out.dtype() == complex64) {                                       \
+      bm = 64;                                                            \
+      bn = 32;                                                            \
+      bk = 8;                                                             \
+      wm = 4;                                                             \
+      wn = 1;                                                             \
+    } else if (!transpose_a && transpose_b) { /* nt */                    \
       bm = 64;                                                            \
       bn = 32;                                                            \
       bk = 32;                                                            \
@@ -348,8 +355,6 @@ void steel_gemm_splitk_axpby(
     float beta = 0.0f) {
   using namespace mlx::steel;
 
-  int _tm = M / 16;
-  int _tn = N / 16;
   int _tk = K / 16;
 
   int bm = M < 40 ? 16 : 32;
@@ -362,7 +367,11 @@ void steel_gemm_splitk_axpby(
   int gemm_k_iterations = (K / bk) / split_k_partitions;
   int split_k_partition_size = gemm_k_iterations * bk;
 
-  array C_split({split_k_partitions, M, N}, float32, nullptr, {});
+  array C_split(
+      {split_k_partitions, M, N},
+      issubdtype(out.dtype(), complexfloating) ? complex64 : float32,
+      nullptr,
+      {});
   C_split.set_data(allocator::malloc(C_split.nbytes()));
   copies.push_back(C_split);
 
@@ -649,15 +658,10 @@ void gemv_axbpy(
   int in_vector_len = K;
   int out_vector_len = is_b_matrix ? N : M;
 
-  int mat_cols = transpose_mat ? out_vector_len : in_vector_len;
-  int mat_rows = transpose_mat ? in_vector_len : out_vector_len;
   int mat_ld = is_b_matrix ? ldb : lda;
 
   auto batch_strides_mat = is_b_matrix ? B_batch_stride : A_batch_stride;
   auto batch_strides_vec = is_b_matrix ? A_batch_stride : B_batch_stride;
-
-  int stride_mat = batch_strides_mat.back();
-  int stride_vec = batch_strides_vec.back();
 
   // Determine if inputs have simple batching / broadcasting
   bool contiguous_kernel = (batch_shape.size() == 1);
@@ -697,6 +701,15 @@ void gemv_axbpy(
   } else {
     bm = out_vector_len >= 4096 ? 8 : 4;
     sn = 32;
+
+    if (K <= 64) {
+      bm = 1;
+      sm = 8;
+      sn = 4;
+    } else if (K >= 16 * out_vector_len) {
+      bm = 1;
+      bn = 8;
+    }
 
     // Specialized kernel for very small outputs
     tm = out_vector_len < tm ? 1 : tm;
@@ -798,9 +811,8 @@ inline void gemv(
 
 void Matmul::eval_gpu(const std::vector<array>& inputs, array& out) {
   assert(inputs.size() == 2);
-  if (!issubdtype(out.dtype(), floating)) {
-    throw std::runtime_error(
-        "[matmul] Does not yet support non-floating point types.");
+  if (!issubdtype(out.dtype(), inexact)) {
+    throw std::runtime_error("[matmul] dtype must be inexact.");
   }
   auto& s = stream();
   auto& d = metal::device(s.device);
@@ -914,19 +926,27 @@ void AddMM::eval_gpu(const std::vector<array>& inputs, array& out) {
     return;
   }
 
-  // Copy c into out and return
+  auto& s = stream();
+  auto& d = metal::device(s.device);
+
+  // Handle empty matrix case (K=0)
   if (inputs[0].shape(-1) == 0) {
-    copy_gpu(
-        inputs[2],
-        out,
-        inputs[2].flags().row_contiguous ? CopyType::Vector : CopyType::General,
-        stream());
+    auto& c = inputs[2];
+    if (beta_ == 1.0f) {
+      copy_gpu(
+          c,
+          out,
+          c.flags().row_contiguous ? CopyType::Vector : CopyType::General,
+          s);
+    } else {
+      array beta_scalar = array(beta_, c.dtype());
+      binary_op_gpu({c, beta_scalar}, out, "Multiply", s);
+      d.add_temporary(std::move(beta_scalar), s.index);
+    }
     return;
   }
 
   out.set_data(allocator::malloc(out.nbytes()));
-  auto& s = stream();
-  auto& d = metal::device(s.device);
 
   auto& a_pre = inputs[0];
   auto& b_pre = inputs[1];
@@ -946,12 +966,9 @@ void AddMM::eval_gpu(const std::vector<array>& inputs, array& out) {
   auto [transpose_b, b_cols, b] = check_transpose(copies, s, b_pre, N == 1);
 
   array c = c_pre;
-  int ldc = c.strides()[c.ndim() - 2];
-  int fdc = c.strides()[c.ndim() - 1];
 
   int lda = a_cols;
   int ldb = b_cols;
-  int ldd = N;
 
   /////////////////////////////////////////////////////////////////////////////
   // Check and collapse batch dimensions
@@ -1083,10 +1100,6 @@ void BlockMaskedMM::eval_gpu(const std::vector<array>& inputs, array& out) {
   std::string out_mask_nm = has_out_mask ? type_to_name(inputs[2]) : "nomask";
   std::string op_mask_nm = has_op_mask ? type_to_name(inputs.back()) : "nomask";
 
-  auto get_batch_dims = [](const auto& v) {
-    return decltype(v){v.begin(), v.end() - 2};
-  };
-
   Shape batch_shape{1};
   Strides A_batch_stride{0};
   Strides B_batch_stride{0};
@@ -1147,8 +1160,6 @@ void BlockMaskedMM::eval_gpu(const std::vector<array>& inputs, array& out) {
     int in_vector_len = K;
     int out_vector_len = is_b_matrix ? N : M;
 
-    int mat_cols = transpose_mat ? out_vector_len : in_vector_len;
-    int mat_rows = transpose_mat ? in_vector_len : out_vector_len;
     int mat_ld = is_b_matrix ? b_cols : a_cols;
 
     auto batch_strides_mat = is_b_matrix ? B_batch_stride : A_batch_stride;
@@ -1329,7 +1340,8 @@ void BlockMaskedMM::eval_gpu(const std::vector<array>& inputs, array& out) {
         << (transpose_b ? 't' : 'n') << "_" << type_to_name(a) << "_"
         << type_to_name(out) << "_bm" << bm << "_bn" << bn << "_bk" << bk
         << "_wm" << wm << "_wn" << wn << "_MN_" << (mn_aligned ? "t" : "n")
-        << "aligned" << "_K_" << (k_aligned ? "t" : "n") << "aligned";
+        << "aligned"
+        << "_K_" << (k_aligned ? "t" : "n") << "aligned";
 
   // Encode and dispatch kernel
   auto& compute_encoder = d.get_command_encoder(s.index);

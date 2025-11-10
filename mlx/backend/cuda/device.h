@@ -3,6 +3,7 @@
 #pragma once
 
 #include "mlx/array.h"
+#include "mlx/backend/cuda/allocator.h"
 #include "mlx/backend/cuda/lru_cache.h"
 #include "mlx/backend/cuda/worker.h"
 #include "mlx/stream.h"
@@ -21,7 +22,7 @@ class CommandEncoder {
   struct CaptureContext {
     CaptureContext(CommandEncoder& enc);
     ~CaptureContext();
-    cudaGraph_t graph;
+    CudaGraph graph;
     CommandEncoder& enc;
     bool discard{false};
   };
@@ -76,9 +77,6 @@ class CommandEncoder {
       uint32_t smem_bytes,
       void** params);
 
-  // Low-level graph helpers.
-  void add_kernel_node(const cudaKernelNodeParams& params);
-  void add_kernel_node(const CUDA_KERNEL_NODE_PARAMS& params);
   void add_graph_node(cudaGraph_t child);
 
   void add_temporary(const array& arr) {
@@ -86,7 +84,7 @@ class CommandEncoder {
   }
 
   void add_completed_handler(std::function<void()> task);
-  void maybe_commit();
+  int get_num_ops();
   void commit();
 
   Device& device() {
@@ -101,6 +99,9 @@ class CommandEncoder {
   void synchronize();
 
  private:
+  void add_kernel_node(const cudaKernelNodeParams& params);
+  void add_kernel_node(const CUDA_KERNEL_NODE_PARAMS& params);
+
   struct GraphNode {
     cudaGraphNode_t node;
     // K = kernel
@@ -115,7 +116,7 @@ class CommandEncoder {
 
   Device& device_;
   CudaStream stream_;
-  cudaGraph_t graph_;
+  CudaGraph graph_;
   Worker worker_;
   char node_count_{0};
   char graph_node_count_{0};
@@ -140,7 +141,7 @@ class Device {
   Device(const Device&) = delete;
   Device& operator=(const Device&) = delete;
 
-  // Make this device the current cuda device, required by some cuda calls.
+  // Make this device the current cuda device, this method is thread-safe.
   void make_current();
 
   CommandEncoder& get_command_encoder(Stream s);

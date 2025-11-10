@@ -267,7 +267,8 @@ void Compiled::eval_gpu(
       }
     }
 
-    return std::make_pair(std::move(builder.os), std::move(kernel_names));
+    return std::make_tuple(
+        false, std::move(builder.os), std::move(kernel_names));
   });
 
   // Collapse contiguous dims to route to a faster kernel if possible. Also
@@ -292,8 +293,13 @@ void Compiled::eval_gpu(
     }
   }
 
+  auto& encoder = cu::get_command_encoder(s);
+
   // Put outputs.
-  compiled_allocate_outputs(inputs, outputs, is_constant_, contiguous);
+  compiled_allocate_outputs(
+      inputs, outputs, is_constant_, contiguous, [&](auto n) {
+        return cu::malloc_async(n, encoder.stream());
+      });
   for (auto& x : outputs) {
     args.append(x);
   }
@@ -323,7 +329,6 @@ void Compiled::eval_gpu(
     kernel_name += fmt::format(
         "_strided<{}, {}, {}>", shape.size(), index_type, work_per_thread);
   }
-  auto& encoder = cu::get_command_encoder(s);
   for (const auto& in : inputs) {
     encoder.set_input_array(in);
   }
@@ -331,9 +336,9 @@ void Compiled::eval_gpu(
     encoder.set_output_array(out);
   }
 
-  auto kernel = mod.get_kernel(kernel_name);
+  auto [kernel, max_block_dims] = mod.get_kernel_and_dims(kernel_name);
   auto [num_blocks, block_dims] =
-      get_launch_args(outputs[0], large, work_per_thread);
+      get_launch_args(outputs[0], large, work_per_thread, max_block_dims);
   encoder.add_kernel_node(kernel, num_blocks, block_dims, 0, args.args());
 }
 

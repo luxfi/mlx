@@ -69,6 +69,17 @@ array full(Shape shape, T val, StreamOrDevice s = {}) {
   return full(std::move(shape), array(val), to_stream(s));
 }
 
+array full_like(const array& a, array vals, Dtype dtype, StreamOrDevice s = {});
+array full_like(const array& a, array vals, StreamOrDevice s = {});
+template <typename T>
+array full_like(const array& a, T val, Dtype dtype, StreamOrDevice s = {}) {
+  return full_like(a, array(val, dtype), dtype, to_stream(s));
+}
+template <typename T>
+array full_like(const array& a, T val, StreamOrDevice s = {}) {
+  return full_like(a, array(val, a.dtype()), to_stream(s));
+}
+
 /** Fill an array of the given shape with zeros. */
 array zeros(const Shape& shape, Dtype dtype, StreamOrDevice s = {});
 inline array zeros(const Shape& shape, StreamOrDevice s = {}) {
@@ -539,6 +550,26 @@ array mean(
     bool keepdims = false,
     StreamOrDevice s = {});
 
+/** Computes the median of the elements of an array. */
+array median(const array& a, bool keepdims, StreamOrDevice s = {});
+inline array median(const array& a, StreamOrDevice s = {}) {
+  return median(a, false, to_stream(s));
+}
+
+/** Computes the median of the elements of an array along the given axes */
+array median(
+    const array& a,
+    const std::vector<int>& axes,
+    bool keepdims = false,
+    StreamOrDevice s = {});
+
+/** Computes the median of the elements of an array along the given axis */
+array median(
+    const array& a,
+    int axis,
+    bool keepdims = false,
+    StreamOrDevice s = {});
+
 /** Computes the variance of the elements of an array. */
 array var(const array& a, bool keepdims, int ddof = 0, StreamOrDevice s = {});
 inline array var(const array& a, StreamOrDevice s = {}) {
@@ -716,6 +747,13 @@ array topk(const array& a, int k, StreamOrDevice s = {});
 array topk(const array& a, int k, int axis, StreamOrDevice s = {});
 
 /** Cumulative logsumexp of an array. */
+array logcumsumexp(
+    const array& a,
+    bool reverse = false,
+    bool inclusive = true,
+    StreamOrDevice s = {});
+
+/** Cumulative logsumexp of an array along the given axis. */
 array logcumsumexp(
     const array& a,
     int axis,
@@ -1188,12 +1226,26 @@ array power(const array& a, const array& b, StreamOrDevice s = {});
 /** Cumulative sum of an array. */
 array cumsum(
     const array& a,
+    bool reverse = false,
+    bool inclusive = true,
+    StreamOrDevice s = {});
+
+/** Cumulative sum of an array along the given axis. */
+array cumsum(
+    const array& a,
     int axis,
     bool reverse = false,
     bool inclusive = true,
     StreamOrDevice s = {});
 
 /** Cumulative product of an array. */
+array cumprod(
+    const array& a,
+    bool reverse = false,
+    bool inclusive = true,
+    StreamOrDevice s = {});
+
+/** Cumulative product of an array along the given axis. */
 array cumprod(
     const array& a,
     int axis,
@@ -1204,12 +1256,26 @@ array cumprod(
 /** Cumulative max of an array. */
 array cummax(
     const array& a,
+    bool reverse = false,
+    bool inclusive = true,
+    StreamOrDevice s = {});
+
+/** Cumulative max of an array along the given axis. */
+array cummax(
+    const array& a,
     int axis,
     bool reverse = false,
     bool inclusive = true,
     StreamOrDevice s = {});
 
 /** Cumulative min of an array. */
+array cummin(
+    const array& a,
+    bool reverse = false,
+    bool inclusive = true,
+    StreamOrDevice s = {});
+
+/** Cumulative min of an array along the given axis. */
 array cummin(
     const array& a,
     int axis,
@@ -1322,39 +1388,50 @@ array quantized_matmul(
     array x,
     array w,
     array scales,
-    array biases,
+    std::optional<array> biases = std::nullopt,
     bool transpose = true,
-    int group_size = 64,
-    int bits = 4,
+    std::optional<int> group_size = std::nullopt,
+    std::optional<int> bits = std::nullopt,
+    const std::string& mode = "affine",
     StreamOrDevice s = {});
 
 /** Quantize a matrix along its last axis */
-std::tuple<array, array, array> quantize(
+std::vector<array> quantize(
     const array& w,
-    int group_size = 64,
-    int bits = 4,
+    std::optional<int> group_size = std::nullopt,
+    std::optional<int> bits = std::nullopt,
+    const std::string& mode = "affine",
     StreamOrDevice s = {});
 
 /** Dequantize a matrix produced by quantize() */
 array dequantize(
     const array& w,
     const array& scales,
-    const array& biases,
-    int group_size = 64,
-    int bits = 4,
+    const std::optional<array>& biases = std::nullopt,
+    std::optional<int> group_size = std::nullopt,
+    std::optional<int> bits = std::nullopt,
+    const std::string& mode = "affine",
+    std::optional<Dtype> dtype = std::nullopt,
     StreamOrDevice s = {});
+
+/** Convert an E4M3 float8 to the given floating point dtype. */
+array from_fp8(array x, Dtype dtype, StreamOrDevice s = {});
+
+/** Convert a floating point matrix to E4M3 float8. */
+array to_fp8(array x, StreamOrDevice s = {});
 
 /** Compute matrix products with matrix-level gather. */
 array gather_qmm(
     const array& x,
     const array& w,
     const array& scales,
-    const array& biases,
+    const std::optional<array>& biases = std::nullopt,
     std::optional<array> lhs_indices = std::nullopt,
     std::optional<array> rhs_indices = std::nullopt,
     bool transpose = true,
-    int group_size = 64,
-    int bits = 4,
+    std::optional<int> group_size = std::nullopt,
+    std::optional<int> bits = std::nullopt,
+    const std::string& mode = "affine",
     bool sorted_indices = false,
     StreamOrDevice s = {});
 

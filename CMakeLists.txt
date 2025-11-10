@@ -26,6 +26,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_INSTALL_MESSAGE NEVER)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ----------------------------- Configuration -----------------------------
 option(MLX_BUILD_TESTS "Build tests for mlx" ON)
@@ -87,22 +88,26 @@ cmake_policy(SET CMP0135 NEW)
 
 add_library(mlx)
 
-if(MLX_BUILD_METAL)
-  set(METAL_LIB "-framework Metal")
-  set(FOUNDATION_LIB "-framework Foundation")
-  set(QUARTZ_LIB "-framework QuartzCore")
-endif()
+# Supress warnings: note: parameter passing for argument of type
+# ‘std::pair<float, float>’ when C++17 is enabled changed to match C++14 in GCC
+# 10.1
+target_compile_options(mlx PRIVATE -Wno-psabi)
 
 if(MLX_BUILD_CUDA)
   enable_language(CUDA)
 endif()
 
-if(MLX_BUILD_METAL AND NOT METAL_LIB)
-  message(STATUS "Metal not found. Unable to build GPU")
-  set(MLX_BUILD_METAL OFF)
-  set(MLX_METAL_DEBUG OFF)
-elseif(MLX_BUILD_METAL)
-  message(STATUS "Building METAL sources")
+if(MLX_BUILD_METAL)
+  find_library(METAL_LIB Metal)
+  find_library(FOUNDATION_LIB Foundation)
+  find_library(QUARTZ_LIB QuartzCore)
+  if(METAL_LIB)
+    message(STATUS "Metal found ${METAL_LIB}")
+  else()
+    message(
+      FATAL_ERROR
+        "Metal not found. Set MLX_BUILD_METAL=OFF to build without GPU")
+  endif()
 
   if(MLX_METAL_DEBUG)
     add_compile_definitions(MLX_METAL_DEBUG)
@@ -111,7 +116,8 @@ elseif(MLX_BUILD_METAL)
   # Throw an error if xcrun not found
   execute_process(
     COMMAND zsh "-c" "/usr/bin/xcrun -sdk macosx --show-sdk-version"
-    OUTPUT_VARIABLE MACOS_SDK_VERSION COMMAND_ERROR_IS_FATAL ANY)
+    OUTPUT_VARIABLE MACOS_SDK_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
 
   if(${MACOS_SDK_VERSION} LESS 14.0)
     message(
@@ -121,9 +127,12 @@ elseif(MLX_BUILD_METAL)
   message(STATUS "Building with macOS SDK version ${MACOS_SDK_VERSION}")
 
   set(METAL_CPP_URL
-      https://developer.apple.com/metal/cpp/files/metal-cpp_macOS15_iOS18.zip)
+      https://developer.apple.com/metal/cpp/files/metal-cpp_26.zip)
 
   if(NOT CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "")
+    if(${CMAKE_OSX_DEPLOYMENT_TARGET} LESS 14.0)
+      message(FATAL_ERROR "MLX requires macOS >= 14.0")
+    endif()
     set(XCRUN_FLAGS "-mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET}")
   endif()
   execute_process(
@@ -132,12 +141,17 @@ elseif(MLX_BUILD_METAL)
       "echo \"__METAL_VERSION__\" | xcrun -sdk macosx metal ${XCRUN_FLAGS} -E -x metal -P - | tail -1 | tr -d '\n'"
     OUTPUT_VARIABLE MLX_METAL_VERSION COMMAND_ERROR_IS_FATAL ANY)
   FetchContent_Declare(metal_cpp URL ${METAL_CPP_URL})
-
   FetchContent_MakeAvailable(metal_cpp)
   target_include_directories(
     mlx PUBLIC $<BUILD_INTERFACE:${metal_cpp_SOURCE_DIR}>
                $<INSTALL_INTERFACE:include/metal_cpp>)
   target_link_libraries(mlx PUBLIC ${METAL_LIB} ${FOUNDATION_LIB} ${QUARTZ_LIB})
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # With newer clang/gcc versions following libs are implicitly linked, but when
+  # building on old distributions they need to be explicitly listed.
+  target_link_libraries(mlx PRIVATE dl pthread)
 endif()
 
 if(WIN32)
@@ -167,7 +181,7 @@ if(MLX_BUILD_CPU)
     message(STATUS "Accelerate found ${ACCELERATE_LIBRARY}")
     set(MLX_BUILD_ACCELERATE ON)
   else()
-    message(STATUS "Accelerate or arm neon not found, using default backend.")
+    message(STATUS "Accelerate not found, using default backend.")
     set(MLX_BUILD_ACCELERATE OFF)
   endif()
 

@@ -36,14 +36,6 @@ void Scan::eval_gpu(const std::vector<array>& inputs, array& out) {
 
   bool contiguous = in.strides()[axis_] == 1;
 
-  std::ostringstream kname;
-  kname << (contiguous ? "contig_" : "strided_");
-  kname << "scan_";
-  if (reverse_) {
-    kname << "reverse_";
-  }
-  kname << ((inclusive_) ? "inclusive_" : "exclusive_");
-
   std::string reduce_type;
   switch (reduce_type_) {
     case Scan::Sum:
@@ -62,9 +54,22 @@ void Scan::eval_gpu(const std::vector<array>& inputs, array& out) {
       reduce_type = "logaddexp";
       break;
   }
-  kname << reduce_type << "_" << type_to_name(in) << "_" << type_to_name(out);
-  auto kernel = get_scan_kernel(
-      d, kname.str(), reverse_, inclusive_, reduce_type, in, out);
+
+  std::string kname;
+  concatenate(
+      kname,
+      contiguous ? "contig_" : "strided_",
+      "scan_",
+      reverse_ ? "reverse_" : "",
+      (inclusive_) ? "inclusive_" : "exclusive_",
+      reduce_type,
+      "_",
+      type_to_name(in),
+      "_",
+      type_to_name(out));
+
+  auto kernel =
+      get_scan_kernel(d, kname, reverse_, inclusive_, reduce_type, in, out);
 
   if (contiguous) {
     auto& compute_encoder = d.get_command_encoder(s.index);
@@ -103,7 +108,6 @@ void Scan::eval_gpu(const std::vector<array>& inputs, array& out) {
     compute_encoder.set_output_array(out, 1);
     size_t size = in.shape(axis_);
     size_t stride = in.strides()[axis_];
-    int bm = 32;
     int bn = 32;
     size_t stride_blocks = (stride + bn - 1) / bn;
     compute_encoder.set_bytes(size, 2);

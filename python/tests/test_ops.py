@@ -775,6 +775,39 @@ class TestOps(mlx_tests.MLXTestCase):
         self.assertEqual(mx.mean(x, axis=0).tolist(), [2, 3])
         self.assertEqual(mx.mean(x, axis=1).tolist(), [1.5, 3.5])
 
+    def test_median(self):
+        x = mx.array([])
+        with self.assertRaises(ValueError):
+            mx.median(x, axis=0)
+        x = mx.array([0, 1, 2, 3, 4])
+        with self.assertRaises(ValueError):
+            mx.median(x, axis=(0, 1))
+        with self.assertRaises(ValueError):
+            mx.median(x, axis=(0, 0))
+
+        out = mx.median(x)
+        self.assertEqual(out.shape, ())
+        self.assertEqual(out.item(), 2)
+        out = mx.median(x, keepdims=True)
+        self.assertEqual(out.shape, (1,))
+
+        x = mx.array([0, 1, 2, 3, 4, 5])
+        out = mx.median(x)
+        self.assertEqual(out.item(), 2.5)
+
+        x = mx.random.normal((5, 5, 5, 5))
+        out = mx.median(x, axis=(0, 2), keepdims=True)
+        out_np = np.median(x, axis=(0, 2), keepdims=True)
+        self.assertTrue(np.allclose(out, out_np))
+
+        out = mx.median(x, axis=(1, 3), keepdims=True)
+        out_np = np.median(x, axis=(1, 3), keepdims=True)
+        self.assertTrue(np.allclose(out, out_np))
+
+        out = mx.median(x, axis=(0, 1, 3), keepdims=True)
+        out_np = np.median(x, axis=(0, 1, 3), keepdims=True)
+        self.assertTrue(np.allclose(out, out_np))
+
     def test_var(self):
         x = mx.array(
             [
@@ -1040,6 +1073,12 @@ class TestOps(mlx_tests.MLXTestCase):
         result = mx.sigmoid(a)
         expected = 1 / (1 + np.exp(-a, dtype=np.float32))
         self.assertTrue(np.allclose(result, expected))
+
+        # Low precision
+        a = mx.array(-8.0).astype(mx.float16)
+        self.assertNotEqual(mx.sigmoid(a).item(), 0.0)
+        a = mx.array(8.0).astype(mx.float16)
+        self.assertNotEqual(mx.sigmoid(a).item(), 1.0)
 
     def test_allclose(self):
         a = mx.array(1.0)
@@ -2191,6 +2230,12 @@ class TestOps(mlx_tests.MLXTestCase):
         y_mx = mx.sort(mx.array(x), axis=-2)
         self.assertTrue(np.array_equal(y_np, y_mx))
 
+        # Test many segments
+        a = mx.random.uniform(shape=(512, 128))
+        y_mx = mx.sort(a, axis=-1)
+        y_np = np.sort(np.array(a), axis=-1)
+        self.assertTrue(np.array_equal(y_np, y_mx))
+
     def test_partition(self):
         shape = (3, 4, 5)
         for dtype in ("int32", "float32"):
@@ -3068,8 +3113,26 @@ class TestOps(mlx_tests.MLXTestCase):
         d = mx.where(c, a[1:], b)
         self.assertTrue(mx.all(d == 1.0))
 
+    def test_integer_power(self):
+        x = mx.power(2, mx.array([8, 8, 8, 8, 8, 8, 8, 8]))
+        self.assertTrue(mx.all(x == 256))
 
-class TestBroadcast(mlx_tests.MLXTestCase):
+        # Doesn't hang
+        x = mx.power(2, -1)
+
+    def test_depends(self):
+        a = mx.array([1.0, 2.0, 3.0])
+        b = mx.exp(a)
+        c = mx.log(a)
+        out = mx.depends([b], [c])[0]
+        self.assertTrue(mx.array_equal(out, b))
+
+        a = mx.array([1.0, 2.0, 3.0])
+        b = mx.exp(a)
+        c = mx.log(a)
+        out = mx.depends(b, c)
+        self.assertTrue(mx.array_equal(out, b))
+
     def test_broadcast_shapes(self):
         # Basic broadcasting
         self.assertEqual(mx.broadcast_shapes((1, 2, 3), (3,)), (1, 2, 3))
@@ -3107,6 +3170,12 @@ class TestBroadcast(mlx_tests.MLXTestCase):
 
         with self.assertRaises(ValueError):
             mx.broadcast_shapes()
+
+    def test_sort_nan(self):
+        x = mx.array([3.0, mx.nan, 2.0, 0.0])
+        expected = mx.array([0.0, 2.0, 3.0, mx.nan])
+        self.assertTrue(mx.array_equal(mx.sort(x), expected, equal_nan=True))
+        x = mx.array([3.0, mx.nan, 2.0, 0.0]) + 1j * mx.array([1.0] * 4)
 
 
 if __name__ == "__main__":

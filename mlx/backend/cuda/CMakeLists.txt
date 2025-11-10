@@ -16,8 +16,13 @@ target_sources(
           ${CMAKE_CURRENT_SOURCE_DIR}/copy/copy_general_dynamic.cu
           ${CMAKE_CURRENT_SOURCE_DIR}/copy/copy_general_input.cu
           ${CMAKE_CURRENT_SOURCE_DIR}/conv.cpp
+          ${CMAKE_CURRENT_SOURCE_DIR}/conv/gemm_conv.cu
+          ${CMAKE_CURRENT_SOURCE_DIR}/conv/gemm_grouped_conv.cu
           ${CMAKE_CURRENT_SOURCE_DIR}/cuda.cpp
+          ${CMAKE_CURRENT_SOURCE_DIR}/cudnn_utils.cpp
+          ${CMAKE_CURRENT_SOURCE_DIR}/custom_kernel.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/device.cpp
+          ${CMAKE_CURRENT_SOURCE_DIR}/distributed.cu
           ${CMAKE_CURRENT_SOURCE_DIR}/eval.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/event.cu
           ${CMAKE_CURRENT_SOURCE_DIR}/fence.cpp
@@ -27,6 +32,7 @@ target_sources(
           ${CMAKE_CURRENT_SOURCE_DIR}/indexing.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/kernel_utils.cu
           ${CMAKE_CURRENT_SOURCE_DIR}/matmul.cpp
+          ${CMAKE_CURRENT_SOURCE_DIR}/load.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/layer_norm.cu
           ${CMAKE_CURRENT_SOURCE_DIR}/logsumexp.cu
           ${CMAKE_CURRENT_SOURCE_DIR}/primitives.cpp
@@ -46,11 +52,18 @@ target_sources(
           ${CMAKE_CURRENT_SOURCE_DIR}/ternary.cu
           ${CMAKE_CURRENT_SOURCE_DIR}/utils.cpp
           ${CMAKE_CURRENT_SOURCE_DIR}/quantized/affine_quantize.cu
+          ${CMAKE_CURRENT_SOURCE_DIR}/quantized/fp_quantize.cu
           ${CMAKE_CURRENT_SOURCE_DIR}/quantized/quantized.cpp
+          ${CMAKE_CURRENT_SOURCE_DIR}/quantized/convert_fp8.cu
           ${CMAKE_CURRENT_SOURCE_DIR}/worker.cpp)
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/binary)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/unary)
+
+# fp4 is not available on < 12.8
+if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS 12.8.0)
+  target_include_directories(mlx PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/quantized/)
+endif()
 
 if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.9.0)
   target_sources(
@@ -165,7 +178,6 @@ target_link_libraries(mlx PRIVATE CUDNN::cudnn_all)
 # Suppress nvcc warnings on MLX headers.
 target_compile_options(mlx PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcudafe
                                    --diag_suppress=997>)
-
 # Install CCCL headers for JIT.
 install(DIRECTORY ${cccl_SOURCE_DIR}/include/cuda
         DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/cccl)

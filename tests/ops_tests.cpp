@@ -2,7 +2,6 @@
 
 // Required for using M_PI_2 in MSVC.
 #define _USE_MATH_DEFINES
-
 #include <cmath>
 #include <numeric>
 
@@ -2827,6 +2826,32 @@ TEST_CASE("test stack") {
       stack({x, y}, 0), "All arrays must have the same shape and dtype");
 }
 
+TEST_CASE("test full_like") {
+  auto base_int = array({1, 2, 3}, {3}, int16);
+
+  auto from_array_with_dtype = full_like(base_int, array(7.5f), float16);
+  auto expected_float16 = array({7.5, 7.5, 7.5}, {3}, float16);
+  CHECK_EQ(from_array_with_dtype.dtype(), float16);
+  CHECK(array_equal(from_array_with_dtype, expected_float16).item<bool>());
+
+  auto from_array_default_dtype = full_like(base_int, array(4.0f));
+  auto expected_int16 = array({4, 4, 4}, {3}, int16);
+  CHECK_EQ(from_array_default_dtype.dtype(), int16);
+  CHECK(array_equal(from_array_default_dtype, expected_int16).item<bool>());
+
+  auto from_scalar_with_dtype = full_like(base_int, 3.25f, float32);
+  auto expected_float32 = array({3.25f, 3.25f, 3.25f}, {3}, float32);
+  CHECK_EQ(from_scalar_with_dtype.dtype(), float32);
+  CHECK(array_equal(from_scalar_with_dtype, expected_float32).item<bool>());
+
+  auto base_float = array({1.0f, 2.0f}, {2}, float32);
+  auto from_scalar_default_dtype = full_like(base_float, 2);
+  auto expected_base_float = array({2.0f, 2.0f}, {2}, float32);
+  CHECK_EQ(from_scalar_default_dtype.dtype(), float32);
+  CHECK(
+      array_equal(from_scalar_default_dtype, expected_base_float).item<bool>());
+}
+
 TEST_CASE("test eye") {
   auto eye_3 = eye(3);
   CHECK_EQ(eye_3.shape(), Shape{3, 3});
@@ -2996,7 +3021,10 @@ TEST_CASE("test quantize dequantize") {
 
   for (int i = 2; i <= 8; i *= 2) {
     int el_per_int = 32 / i;
-    auto [x_q, scales, biases] = quantize(x, 128, i);
+    auto res = quantize(x, 128, i);
+    auto x_q = res[0];
+    auto scales = res[1];
+    auto biases = res[2];
     CHECK_EQ(x_q.shape(), Shape{128, 512 / el_per_int});
     CHECK_EQ(scales.shape(), Shape{128, 4});
     CHECK_EQ(biases.shape(), Shape{128, 4});
@@ -3632,7 +3660,6 @@ TEST_CASE("test conv1d") {
           {1, 3, 2}),
       float16);
 
-  int kernel = 3;
   int stride = 1;
   int padding = 1;
 
@@ -3732,7 +3759,6 @@ TEST_CASE("test conv2d") {
        -0.26912728},
       {1, 2, 2, 2});
 
-  std::pair<int, int> kernel{2, 2};
   std::pair<int, int> stride{1, 1};
   std::pair<int, int> padding{0, 0};
 
@@ -4028,4 +4054,48 @@ TEST_CASE("test conv_transpose3d with output_padding") {
        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,  0.0},
       {1, 2, 4, 4, 1});
   CHECK(array_equal(out, expected).item<bool>());
+}
+
+TEST_CASE("test fp8 conversion") {
+  for (auto t : {float32, float16, bfloat16}) {
+    array in({-1.125, -1.0, 0.0, 1.0, 1.125, 4.5, 448.0}, t);
+    auto in_fp8 = to_fp8(in);
+    auto out = from_fp8(in_fp8, t);
+    CHECK(array_equal(out, in).item<bool>());
+  }
+
+  array in({-1.125, -1.0, 0.0, 1.0, 1.125, 4.5, 448.0});
+  array noisy_in({-1.135, -1.01, 0.0001, 1.01, 1.135, 4.6, 447.0});
+  auto in_fp8 = to_fp8(noisy_in);
+  auto out = from_fp8(in_fp8, float32);
+  CHECK(array_equal(out, in).item<bool>());
+
+  // Overflow
+  in = array({-600.0, 600.0});
+  in_fp8 = to_fp8(in);
+  out = from_fp8(in_fp8, float32);
+
+  auto expected = array({-448.0f, 448.0f});
+  CHECK(array_equal(out, expected, true).item<bool>());
+}
+
+TEST_CASE("test max min with nan") {
+  // Test maximum and minimum with NaN values
+  auto x = array({0.0f, 1.0f, NAN, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f});
+  auto y = array({NAN, 1.0f, NAN, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f});
+  auto expected_max = array({NAN, 1.0f, NAN, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f});
+  auto expected_min = array({NAN, 1.0f, NAN, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f});
+  auto max_result = maximum(x, y);
+  auto min_result = minimum(x, y);
+  CHECK(array_equal(max_result, expected_max, true).item<bool>());
+  CHECK(array_equal(min_result, expected_min, true).item<bool>());
+
+  // Test with all NaN values
+  x = array({NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN});
+  y = array({NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN});
+  max_result = maximum(x, y);
+  min_result = minimum(x, y);
+  auto expected = array({NAN, NAN, NAN, NAN, NAN, NAN, NAN, NAN});
+  CHECK(array_equal(max_result, expected, true).item<bool>());
+  CHECK(array_equal(min_result, expected, true).item<bool>());
 }

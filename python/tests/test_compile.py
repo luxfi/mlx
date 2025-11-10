@@ -319,7 +319,7 @@ class TestCompile(mlx_tests.MLXTestCase):
         # Check the state is unchanged
         self.assertEqual(state["y"], 2)
 
-        # Check the udpated state is used
+        # Check the updated state is used
         state["y"] = mx.array(3)
         out = test_state(mx.array(1))
         self.assertEqual(out.item(), 4)
@@ -481,6 +481,28 @@ class TestCompile(mlx_tests.MLXTestCase):
             return x[:, -1, :]
 
         self.assertEqual(mx.compile(fun, shapeless=True)(x).shape, (1, 32))
+
+    def test_shapeless_compile_full_like(self):
+        x_shape = (1, 1, 32)
+        x = mx.zeros((x_shape))
+
+        def zeros_fun(x):
+            return mx.zeros_like(x)
+
+        def ones_fun(x):
+            return mx.ones_like(x)
+
+        compiled_zero_like = mx.compile(zeros_fun, shapeless=True)
+        compiled_ones_like = mx.compile(ones_fun, shapeless=True)
+
+        self.assertEqual(compiled_zero_like(x).shape, x_shape)
+        self.assertEqual(compiled_ones_like(x).shape, x_shape)
+
+        y_shape = (2, 2, 16)
+        y = mx.zeros(y_shape)
+
+        self.assertEqual(compiled_zero_like(y).shape, y_shape)
+        self.assertEqual(compiled_ones_like(y).shape, y_shape)
 
     def test_compile_with_constant(self):
         # Test float
@@ -828,8 +850,20 @@ class TestCompile(mlx_tests.MLXTestCase):
         out = fun(arrs)
         self.assertTrue(mx.allclose(out, mx.array([64.0, 128.0])))
 
-    def test_compile_many_outputs(self):
+        inputs = [mx.arange(16384).astype(mx.float16) for _ in range(8)]
 
+        def fun(inputs):
+            a = inputs[0] + inputs[1]
+            b = inputs[2] + inputs[3]
+            c = inputs[4] + inputs[5]
+            d = inputs[6] + inputs[7]
+            return a * b * c * d
+
+        out = mx.compile(fun)(inputs)
+        expected = fun(inputs)
+        self.assertTrue(mx.allclose(out, expected))
+
+    def test_compile_many_outputs(self):
         @mx.compile
         def fun(arr):
             arrs = [arr] * 64
@@ -1036,6 +1070,114 @@ class TestCompile(mlx_tests.MLXTestCase):
         self.assertEqual(inner.__qualname__, c_inner.__qualname__)
         self.assertEqual(inner.__doc__, c_inner.__doc__)
         self.assertEqual(inspect.signature(inner), inspect.signature(c_inner))
+
+    def test_compile_with_none(self):
+        @mx.compile
+        def fun(x, y):
+            if y is None:
+                return mx.abs(x - 2.0)
+            else:
+                return mx.abs(x + y)
+
+        out = fun(mx.array(1.0), None)
+        self.assertEqual(out.item(), 1.0)
+
+        out = fun(mx.array(1.0), mx.array(2.0))
+        self.assertEqual(out.item(), 3.0)
+
+    def test_compile_changing_outputs(self):
+        @mx.compile
+        def fun(x, y):
+            if y is None:
+                return 2 * x
+            elif (
+                isinstance(x, mx.array)
+                and isinstance(y, mx.array)
+                and x.dtype == y.dtype == mx.float32
+            ):
+                return [x + y]
+            elif y.dtype == mx.bool_:
+                return {"a": x, "b": y * x}
+            else:
+                return None
+
+        a = fun(mx.array(1.0), mx.array(2.0))
+        self.assertTrue(isinstance(a, list))
+        self.assertEqual(a[0].item(), 3.0)
+
+        b = fun(mx.array(1.0), mx.array(True))
+        self.assertTrue(isinstance(b, dict))
+        self.assertEqual(b["a"].item(), 1.0)
+        self.assertEqual(b["b"].item(), 1.0)
+
+        c = fun(mx.array(1.0), None)
+        self.assertTrue(isinstance(c, mx.array))
+        self.assertEqual(c.item(), 2.0)
+
+        d = fun(False, mx.array(1.0))
+        self.assertTrue(d is None)
+
+    def test_compile_changing_outputs_with_state(self):
+        state = [mx.array(1.0)]
+
+        @partial(mx.compile, inputs=state, outputs=state)
+        def fun(y):
+            x = state[0]
+            if y.dtype == mx.float32:
+                state[0] = 2 * y
+                return [x, y, x + y]
+            elif y.dtype == mx.int32:
+                state[0] *= 2
+                return x + y
+
+        for i in range(10):
+            fun(mx.array(1.0))
+            fun(mx.array(1))
+
+        self.assertEqual(state[0].item(), 4)
+
+    def test_outputs_changing(self):
+        @mx.compile
+        def fun(x):
+            x = mx.abs(mx.negative(x))
+            y = mx.abs(x)
+            return x, y
+
+        @mx.compile
+        def fun2(x):
+            x = mx.abs(mx.negative(x))
+            y = mx.abs(x)
+            return y
+
+        a, b = fun(mx.array(-1.0))
+        mx.eval(a, b)
+
+        a = fun2(mx.array(-1.0))
+        self.assertEqual(a.item(), 1.0)
+
+    def test_multiple_compile_same_capture(self):
+        def fun(do_compile):
+            t = mx.ones((10,))
+            u = (1.0 - t) * 0.0 + t * 3.0
+
+            o = mx.ones((6,))
+            b = o[:, None] * u
+
+            c = b * mx.ones_like(u)
+
+            a = mx.ones((6,))
+            if do_compile:
+                d = mx.compile(lambda x: x @ b)(a)
+                e = mx.compile(lambda x: x @ c.T)(d)
+            else:
+                d = a @ b
+                e = d @ c.T
+            return e
+
+        out = fun(True)
+        mx.eval(out)
+        expected = fun(False)
+        self.assertTrue(mx.allclose(out, expected))
 
 
 if __name__ == "__main__":
