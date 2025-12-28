@@ -41,10 +41,7 @@ import (
 	"unsafe"
 )
 
-const (
-	// ONNX uses ONNX Runtime backend
-	ONNX Backend = iota + 10
-)
+// ONNX backend value is defined in mlx.go
 
 // ONNXContext manages ONNX Runtime resources
 type ONNXContext struct {

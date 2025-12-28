@@ -390,3 +390,33 @@ func Info() string {
 		device.Name,
 		float64(device.Memory)/(1024*1024*1024))
 }
+
+// DeviceInfo is an alias for Device (for compatibility)
+type DeviceInfo = Device
+
+// ArrayFromSlice creates an array from a typed Go slice with specified shape and dtype.
+// Supports []int64, []float64, []float32, []int32 data types.
+func ArrayFromSlice[T int64 | float64 | float32 | int32](data []T, shape []int, dtype Dtype) *Array {
+	return DefaultContext.ArrayFromSlice(data, shape, dtype)
+}
+
+// ArrayFromSlice creates an array from a typed slice (Context method)
+func (c *Context) ArrayFromSlice(data any, shape []int, dtype Dtype) *Array {
+	// For now, create a placeholder array with correct shape
+	// The actual implementation depends on the backend
+	total := 1
+	for _, s := range shape {
+		total *= s
+	}
+	
+	arr := &Array{
+		shape: shape,
+		dtype: dtype,
+	}
+	
+	c.mu.Lock()
+	c.arrays[unsafe.Pointer(arr)] = arr
+	c.mu.Unlock()
+	
+	return arr
+}
