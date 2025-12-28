@@ -41,10 +41,14 @@ option(MLX_ENABLE_X64_MAC "Enable building for x64 macOS" OFF)
 option(MLX_BUILD_GGUF "Include support for GGUF format" ON)
 option(MLX_BUILD_SAFETENSORS "Include support for safetensors format" ON)
 option(MLX_BUILD_BLAS_FROM_SOURCE "Build OpenBLAS from source code" OFF)
+option(MLX_BUILD_PYTHON_STUBS "Build stub files for python bindings" ON)
 option(MLX_METAL_JIT "Use JIT compilation for Metal kernels" OFF)
 option(MLX_USE_CCACHE "Use CCache for compilation cache when available" ON)
 option(BUILD_SHARED_LIBS "Build mlx as a shared library" OFF)
 option(USE_SYSTEM_FMT "Use system's provided fmt library" OFF)
+option(USE_ASAN "Enable AddressSanitizer (ASan)" OFF)
+option(USE_UBSAN "Enable UndefinedBehaviorSanitizer (UBSan)" OFF)
+option(USE_TSAN "Enable ThreadSanitizer (TSan)" OFF)
 
 # --------------------- Processor tests -------------------------
 message(
@@ -74,9 +78,67 @@ endif()
 if(MLX_USE_CCACHE)
   find_program(CCACHE_PROGRAM ccache)
   if(CCACHE_PROGRAM)
+    message(STATUS "Found CCache: ${CCACHE_PROGRAM}")
     set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
     set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
     set(CMAKE_CUDA_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+  endif()
+endif()
+
+if(USE_ASAN AND USE_TSAN)
+  message(
+    FATAL_ERROR
+      "AddressSanitizer (ASan) and ThreadSanitizer (TSan) are mutually exclusive and cannot be enabled at the same time."
+  )
+endif()
+
+set(SANITIZER_COMPILE_FLAGS "")
+set(SANITIZER_LINK_FLAGS "")
+
+if(USE_ASAN)
+  if(WIN32 AND MSVC)
+    list(APPEND SANITIZER_COMPILE_FLAGS /fsanitize=address)
+    list(APPEND SANITIZER_LINK_FLAGS /fsanitize=address)
+  else()
+    list(APPEND SANITIZER_COMPILE_FLAGS -fsanitize=address)
+    list(APPEND SANITIZER_LINK_FLAGS -fsanitize=address)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      list(APPEND SANITIZER_LINK_FLAGS -lpthread)
+    endif()
+  endif()
+endif()
+
+if(USE_UBSAN)
+  if(WIN32 AND MSVC)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+      list(APPEND SANITIZER_COMPILE_FLAGS -fsanitize=undefined)
+      list(APPEND SANITIZER_LINK_FLAGS -fsanitize=undefined)
+    else()
+      message(
+        WARNING
+          "UndefinedBehaviorSanitizer (UBSan) is not directly supported via a simple flag in MSVC."
+      )
+    endif()
+  else()
+    list(APPEND SANITIZER_COMPILE_FLAGS -fsanitize=undefined)
+    list(APPEND SANITIZER_LINK_FLAGS -fsanitize=undefined)
+  endif()
+endif()
+
+if(USE_TSAN)
+  if(WIN32 AND MSVC)
+    message(
+      FATAL_ERROR
+        "ThreadSanitizer (TSan) is not supported by the MSVC compiler. Please use Clang or GCC."
+    )
+  elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    message(FATAL_ERROR "ThreadSanitizer (TSan) is not supported on macOS.")
+  else()
+    list(APPEND SANITIZER_COMPILE_FLAGS -fsanitize=thread)
+    list(APPEND SANITIZER_LINK_FLAGS -fsanitize=thread)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      list(APPEND SANITIZER_LINK_FLAGS -lpthread)
+    endif()
   endif()
 endif()
 
@@ -94,6 +156,8 @@ add_library(mlx)
 if(NOT MSVC)
   target_compile_options(mlx PRIVATE -Wno-psabi)
 endif()
+target_compile_options(mlx PUBLIC ${SANITIZER_COMPILE_FLAGS})
+target_link_options(mlx PUBLIC ${SANITIZER_LINK_FLAGS})
 
 if(MLX_BUILD_CUDA)
   enable_language(CUDA)
@@ -274,14 +338,16 @@ target_link_libraries(mlx PRIVATE $<BUILD_INTERFACE:fmt::fmt-header-only>)
 if(MLX_BUILD_PYTHON_BINDINGS)
   message(STATUS "Building Python bindings.")
   find_package(
-    Python 3.8
+    Python 3.10
     COMPONENTS Interpreter Development.Module
     REQUIRED)
-  execute_process(
-    COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    OUTPUT_VARIABLE nanobind_ROOT)
-  find_package(nanobind CONFIG REQUIRED)
+  FetchContent_Declare(
+    nanobind
+    GIT_REPOSITORY https://github.com/wjakob/nanobind.git
+    GIT_TAG v2.10.2
+    GIT_SHALLOW TRUE
+    EXCLUDE_FROM_ALL)
+  FetchContent_MakeAvailable(nanobind)
   add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/python/src)
 endif()
 

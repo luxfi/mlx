@@ -434,6 +434,14 @@ class TestArray(mlx_tests.MLXTestCase):
         x = mx.array([0, 4294967295], dtype=mx.float32)
         self.assertTrue(np.array_equal(x, xnp))
 
+    def test_double_keeps_precision(self):
+        x = 39.14223403241
+        out = mx.array(x, dtype=mx.float64).item()
+        self.assertEqual(out, x)
+
+        out = mx.array([x], dtype=mx.float64).item()
+        self.assertEqual(out, x)
+
     def test_construction_from_lists_of_mlx_arrays(self):
         dtypes = [
             mx.bool_,
@@ -1927,6 +1935,37 @@ class TestArray(mlx_tests.MLXTestCase):
         a[:, idx] = 4
         anp[:, idx] = 4
         self.assertTrue(np.array_equal(a, anp))
+
+    def test_setitem_with_boolean_mask(self):
+        # Python list mask
+        a = mx.array([1.0, 2.0, 3.0])
+        mask = [True, False, True]
+        src = mx.array([5.0, 6.0])
+        expected = mx.array([5.0, 2.0, 6.0])
+        a[mask] = src
+        self.assertTrue(mx.array_equal(a, expected))
+
+        # mx.array scalar mask
+        a = mx.array([1.0, 2.0, 3.0])
+        mask = mx.array(True)
+        expected = mx.array([5.0, 5.0, 5.0])
+        a[mask] = 5.0
+        self.assertTrue(mx.array_equal(a, expected))
+
+        # scalar mask
+        a = mx.array([1.0, 2.0, 3.0])
+        mask = True
+        expected = mx.array([5.0, 5.0, 5.0])
+        a[mask] = 5.0
+        self.assertTrue(mx.array_equal(a, expected))
+
+        mask_np = np.zeros((1, 10, 10), dtype=bool)
+        with self.assertRaises(ValueError):
+            mx.arange(1000).reshape(10, 10, 10)[mask_np] = 0
+
+        mask_np = np.zeros((10, 10, 1), dtype=bool)
+        with self.assertRaises(ValueError):
+            mx.arange(1000).reshape(10, 10, 10)[mask_np] = 0
 
     def test_array_namespace(self):
         a = mx.array(1.0)

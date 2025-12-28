@@ -1445,7 +1445,7 @@ void init_ops(nb::module_& m) {
       "dtype"_a.none() = mx::float32,
       "stream"_a = nb::none(),
       nb::sig(
-          "def linspace(start, stop, num: Optional[int] = 50, dtype: Optional[Dtype] = float32, stream: Union[None, Stream, Device] = None) -> array"),
+          "def linspace(start: scalar, stop: scalar, num: Optional[int] = 50, dtype: Optional[Dtype] = float32, stream: Union[None, Stream, Device] = None) -> array"),
       R"pbdoc(
         Generate ``num`` evenly spaced numbers over interval ``[start, stop]``.
 
@@ -4021,7 +4021,7 @@ void init_ops(nb::module_& m) {
       nb::kw_only(),
       "stream"_a = nb::none(),
       nb::sig(
-          "def load(file: Union[file, str, pathlib.Path], /, format: Optional[str] = None, return_metadata: bool = False, *, stream: Union[None, Stream, Device] = None) -> Union[array, dict[str, array]]"),
+          "def load(file: Union[file, str, pathlib.Path], /, format: Optional[str] = None, return_metadata: bool = False, *, stream: Union[None, Stream, Device] = None) -> Union[array, dict[str, array], Tuple[dict[str, array], dict[str, Any]]]"),
       R"pbdoc(
         Load array(s) from a binary file.
 
@@ -4037,11 +4037,12 @@ void init_ops(nb::module_& m) {
               which support matadata. The metadata will be returned as an
               additional dictionary. Default: ``False``.
         Returns:
-            array or dict:
+            array, dict, or tuple:
                 A single array if loading from a ``.npy`` file or a dict
                 mapping names to arrays if loading from a ``.npz`` or
-                ``.safetensors`` file. If ``return_metadata`` is ``True`` an
-                additional dictionary of metadata will be returned.
+                ``.safetensors`` file. If ``return_metadata`` is ``True`` a
+                tuple ``(arrays, metadata)`` will be returned where the second
+                element is a dictionary containing the metadata.
 
         Warning:
 
@@ -4335,7 +4336,7 @@ void init_ops(nb::module_& m) {
       nb::kw_only(),
       "stream"_a = nb::none(),
       nb::sig(
-          "def dequantize(w: array, /, scales: array, biases: Optional[array] = None, group_size: Optional[int] = None, bits: Optional[int] = None, mode: str = 'affine', dtype: Optional[Dtype], *, stream: Union[None, Stream, Device] = None) -> array"),
+          "def dequantize(w: array, /, scales: array, biases: Optional[array] = None, group_size: Optional[int] = None, bits: Optional[int] = None, mode: str = 'affine', dtype: Optional[Dtype] = None, *, stream: Union[None, Stream, Device] = None) -> array"),
       R"pbdoc(
         Dequantize the matrix ``w`` using quantization parameters.
 
@@ -5432,4 +5433,54 @@ void init_ops(nb::module_& m) {
         Returns:
             array or Sequence[array]: The outputs which depend on dependencies.
       )pbdoc");
+  m.def(
+      "qqmm",
+      &mx::qqmm,
+      nb::arg(), // x
+      nb::arg(), // w_q
+      "scales"_a = nb::none(), // scales w
+      "group_size"_a = nb::none(),
+      "bits"_a = nb::none(),
+      "mode"_a = "nvfp4",
+      nb::kw_only(),
+      "stream"_a = nb::none(),
+      nb::sig(
+          "def qqmm(x: array, w: array, scales: Optional[array] = None, group_size: Optional[int] = None, bits: Optional[int] = None, mode: str = 'nvfp4', *, stream: Union[None, Stream, Device] = None) -> array"),
+      R"pbdoc(
+      Perform a matrix multiplication using a possibly quantized weight matrix
+      ``w`` and a non-quantized input ``x``. The input ``x`` is quantized on the
+      fly. The weight matrix ``w`` is used as-is if it is already quantized;
+      otherwise, it is quantized on the fly.
+
+      If ``w`` is quantized, ``scales`` must be provided, and ``group_size``,
+      ``bits``, and ``mode`` must match the parameters that were used to quantize
+      ``w``.
+
+      Notes:
+        If ``w`` is expected to receive gradients, it must be provided in
+        non-quantized form.
+
+        If ``x`` and `w`` are not quantized, their data types must be ``float32``, 
+        ``float16``, or ``bfloat16``.
+        If ``w`` is quantized, it must be packed in unsigned integers.
+        
+      Args:
+        x (array): Input array.
+        w (array): Weight matrix. If quantized, it is packed in unsigned integers.
+        scales (array, optional): The scales to use per ``group_size`` elements of
+          ``w`` if ``w`` is quantized. Default: ``None``.
+        group_size (int, optional): Number of elements in ``x`` and ``w`` that
+          share a scale. See supported values and defaults in the
+          :ref:`table of quantization modes <quantize-modes>`. Default: ``None``.
+        bits (int, optional): Number of bits used to represent each element of
+          ``x`` and ``w``. See supported values and defaults in the
+          :ref:`table of quantization modes <quantize-modes>`. Default: ``None``.
+        mode (str, optional): The quantization mode. Default: ``"nvfp4"``.
+          Supported modes are ``nvfp4`` and ``mxfp8``. See the
+          :ref:`table of quantization modes <quantize-modes>` for details.
+
+      Returns:
+        array: The result of the multiplication of quantized ``x`` with quantized ``w``.
+        needed).
+  )pbdoc");
 }

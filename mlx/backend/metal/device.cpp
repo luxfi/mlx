@@ -224,7 +224,7 @@ MTL::Library* load_library(
   std::ostringstream msg;
   msg << "Failed to load the metallib " << lib_name << ".metallib. "
       << "We attempted to load it from <" << current_binary_dir() << "/"
-      << lib_name << ".metallib" << ">";
+      << lib_name << ".metallib>";
 #ifdef SWIFTPM_BUNDLE
   msg << " and from the Swift PM bundle.";
 #endif
@@ -382,11 +382,8 @@ MTL::CommandQueue* Device::get_queue(Stream stream) {
 
 bool Device::command_buffer_needs_commit(int index) {
   auto& stream = get_stream_(index);
-  if (stream.buffer_ops > max_ops_per_buffer_ ||
-      (stream.buffer_sizes >> 20) > max_mb_per_buffer_) {
-    return true;
-  }
-  return false;
+  return (stream.buffer_ops > max_ops_per_buffer_) ||
+      ((stream.buffer_sizes >> 20) > max_mb_per_buffer_);
 }
 
 MTL::CommandBuffer* Device::get_command_buffer(int index) {
@@ -532,6 +529,11 @@ MTL::Library* Device::build_library_(const std::string& source_string) {
   auto options = MTL::CompileOptions::alloc()->init();
   options->setFastMathEnabled(false);
   options->setLanguageVersion(get_metal_version());
+#ifndef NDEBUG
+  if (options->languageVersion() >= MTL::LanguageVersion3_2) {
+    options->setEnableLogging(true);
+  }
+#endif
   auto mtl_lib = device_->newLibrary(ns_code, options, &error);
   options->release();
 

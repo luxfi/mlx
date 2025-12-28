@@ -1198,6 +1198,12 @@ inline array scatter_min(
   return scatter_min(a, {indices}, updates, std::vector<int>{axis}, s);
 }
 
+array masked_scatter(
+    const array& a,
+    const array& mask,
+    const array& src,
+    StreamOrDevice s = {});
+
 /** Square root the elements of an array. */
 array sqrt(const array& a, StreamOrDevice s = {});
 
@@ -1412,6 +1418,16 @@ array dequantize(
     std::optional<int> bits = std::nullopt,
     const std::string& mode = "affine",
     std::optional<Dtype> dtype = std::nullopt,
+    StreamOrDevice s = {});
+
+array qqmm(
+    array x, // input activations
+    array w, // maybe quantized weights
+    std::optional<array> w_scales = std::nullopt, // optional scales if w is
+                                                  // quantized
+    std::optional<int> group_size = std::nullopt,
+    std::optional<int> bits = std::nullopt,
+    const std::string& mode = "nvfp4",
     StreamOrDevice s = {});
 
 /** Convert an E4M3 float8 to the given floating point dtype. */
