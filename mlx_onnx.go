@@ -1,4 +1,5 @@
-// +build cgo
+//go:build cgo && onnx
+// +build cgo,onnx
 
 package mlx
 
