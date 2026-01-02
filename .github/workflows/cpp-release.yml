@@ -1,0 +1,257 @@
+name: C++ Library Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+env:
+  CMAKE_BUILD_TYPE: Release
+  LIBRARY_NAME: luxgpu
+
+jobs:
+  build-macos:
+    runs-on: macos-14  # Apple Silicon
+    strategy:
+      matrix:
+        arch: [arm64, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja
+
+      - name: Configure CMake
+        run: |
+          mkdir build && cd build
+          cmake .. \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
+            -DBUILD_SHARED_LIBS=ON \
+            -DMLX_BUILD_TESTS=OFF \
+            -DMLX_BUILD_EXAMPLES=OFF \
+            -DMLX_BUILD_PYTHON_BINDINGS=OFF \
+            -DMLX_BUILD_METAL=${{ matrix.arch == 'arm64' && 'ON' || 'OFF' }}
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create pkg-config file
+        run: |
+          mkdir -p build/lib/pkgconfig
+          VERSION=${{ steps.version.outputs.version }}
+          cat > build/lib/pkgconfig/lux-gpu.pc << EOF
+          prefix=/usr/local
+          exec_prefix=\${prefix}
+          libdir=\${prefix}/lib
+          includedir=\${prefix}/include
+
+          Name: lux-gpu
+          Description: Lux GPU Library - GPU-Accelerated Array Operations (Metal/CUDA)
+          Version: ${VERSION}
+          Requires:
+          Libs: -L\${libdir} -lluxgpu
+          Libs.private: ${{ matrix.arch == 'arm64' && '-framework Metal -framework Foundation' || '' }} -lstdc++
+          Cflags: -I\${includedir}/lux/gpu
+          EOF
+
+      - name: Create tarball
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          ARCH=${{ matrix.arch }}
+          mkdir -p dist/include/lux/gpu dist/lib/pkgconfig dist/lib/cmake/lux-gpu
+
+          # Copy headers
+          cp -r include/* dist/include/lux/gpu/ 2>/dev/null || cp -r mlx/include/* dist/include/lux/gpu/ 2>/dev/null || true
+
+          # Copy libraries
+          cp build/lib/*.dylib dist/lib/ 2>/dev/null || true
+          cp build/lib/*.a dist/lib/ 2>/dev/null || true
+
+          # Copy pkg-config
+          cp build/lib/pkgconfig/*.pc dist/lib/pkgconfig/
+
+          cd dist
+          tar -czvf ../lux-gpu-${VERSION}-macos-${ARCH}.tar.gz .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lux-gpu-macos-${{ matrix.arch }}
+          path: lux-gpu-*.tar.gz
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        arch: [amd64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential libblas-dev liblapack-dev
+
+      - name: Configure CMake
+        run: |
+          mkdir build && cd build
+          cmake .. \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DMLX_BUILD_TESTS=OFF \
+            -DMLX_BUILD_EXAMPLES=OFF \
+            -DMLX_BUILD_PYTHON_BINDINGS=OFF \
+            -DMLX_BUILD_METAL=OFF
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create pkg-config file
+        run: |
+          mkdir -p build/lib/pkgconfig
+          VERSION=${{ steps.version.outputs.version }}
+          cat > build/lib/pkgconfig/lux-gpu.pc << EOF
+          prefix=/usr/local
+          exec_prefix=\${prefix}
+          libdir=\${prefix}/lib
+          includedir=\${prefix}/include
+
+          Name: lux-gpu
+          Description: Lux GPU Library - GPU-Accelerated Array Operations (CUDA/CPU)
+          Version: ${VERSION}
+          Requires:
+          Libs: -L\${libdir} -lluxgpu
+          Libs.private: -lstdc++ -lpthread -lm
+          Cflags: -I\${includedir}/lux/gpu
+          EOF
+
+      - name: Create tarball
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          ARCH=${{ matrix.arch }}
+          mkdir -p dist/include/lux/gpu dist/lib/pkgconfig
+
+          # Copy headers
+          cp -r include/* dist/include/lux/gpu/ 2>/dev/null || cp -r mlx/include/* dist/include/lux/gpu/ 2>/dev/null || true
+
+          # Copy libraries
+          cp build/lib/*.so* dist/lib/ 2>/dev/null || true
+          cp build/lib/*.a dist/lib/ 2>/dev/null || true
+
+          # Copy pkg-config
+          cp build/lib/pkgconfig/*.pc dist/lib/pkgconfig/
+
+          cd dist
+          tar -czvf ../lux-gpu-${VERSION}-linux-${ARCH}.tar.gz .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lux-gpu-linux-${{ matrix.arch }}
+          path: lux-gpu-*.tar.gz
+
+  build-linux-arm64:
+    runs-on: ubuntu-22.04-arm
+    if: false  # Enable when arm64 runners are available
+    steps:
+      - uses: actions/checkout@v4
+      # ... similar to linux amd64
+
+  release:
+    needs: [build-macos, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "tag=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          find artifacts -name "*.tar.gz" -exec cp {} release/ \;
+          cd release
+          sha256sum *.tar.gz > SHA256SUMS
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Lux GPU Library v${{ steps.version.outputs.version }}
+          body: |
+            ## Lux GPU Library v${{ steps.version.outputs.version }}
+
+            GPU-accelerated array operations library with Metal and CUDA support.
+
+            ### Downloads
+
+            | Platform | Architecture | GPU Support | File |
+            |----------|--------------|-------------|------|
+            | macOS | arm64 | Metal (GPU) | `lux-gpu-${{ steps.version.outputs.version }}-macos-arm64.tar.gz` |
+            | macOS | x86_64 | CPU only | `lux-gpu-${{ steps.version.outputs.version }}-macos-x86_64.tar.gz` |
+            | Linux | amd64 | CPU/CUDA | `lux-gpu-${{ steps.version.outputs.version }}-linux-amd64.tar.gz` |
+
+            ### Installation
+
+            ```bash
+            # Download and extract to /usr/local
+            curl -LO https://github.com/luxfi/gpu/releases/download/v${{ steps.version.outputs.version }}/lux-gpu-${{ steps.version.outputs.version }}-$(uname -s | tr A-Z a-z)-$(uname -m).tar.gz
+            sudo tar -xzf lux-gpu-*.tar.gz -C /usr/local
+
+            # Verify installation
+            pkg-config --libs lux-gpu
+            ```
+
+            ### CGO Usage
+
+            ```bash
+            export CGO_CFLAGS=$(pkg-config --cflags lux-gpu)
+            export CGO_LDFLAGS=$(pkg-config --libs lux-gpu)
+            go build -tags cgo ./...
+            ```
+          files: release/*
+          draft: false
+          prerelease: false
