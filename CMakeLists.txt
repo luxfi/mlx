@@ -36,6 +36,7 @@ option(MLX_BUILD_PYTHON_BINDINGS "Build python bindings for mlx" OFF)
 option(MLX_BUILD_METAL "Build metal backend" ON)
 option(MLX_BUILD_CPU "Build cpu backend" ON)
 option(MLX_BUILD_CUDA "Build cuda backend" OFF)
+option(MLX_BUILD_WEBGPU "Build WebGPU backend (via Dawn)" OFF)
 option(MLX_METAL_DEBUG "Enhance metal debug workflow" OFF)
 option(MLX_ENABLE_X64_MAC "Enable building for x64 macOS" OFF)
 option(MLX_BUILD_GGUF "Include support for GGUF format" ON)
@@ -355,9 +356,22 @@ target_sources(
   mlx
   PRIVATE ${CMAKE_CURRENT_LIST_DIR}/mlx_c_api.cpp)
 
+# Add Lux GPU backend runtime (CUDA > Metal > WebGPU > CPU priority)
+target_sources(
+  mlx
+  PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src/backend.cpp)
+
 target_include_directories(
   mlx PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>
+             $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}/include>
              $<INSTALL_INTERFACE:include>)
+
+# WebGPU backend via gpu.cpp (Dawn)
+if(MLX_BUILD_WEBGPU)
+  message(STATUS "Building WebGPU backend via gpu.cpp/Dawn")
+  add_compile_definitions(LUX_HAVE_WEBGPU)
+  add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/webgpu)
+endif()
 
 # Do not add mlx_EXPORTS define for shared library.
 set_target_properties(mlx PROPERTIES DEFINE_SYMBOL "")

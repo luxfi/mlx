@@ -1,5 +1,5 @@
 // Copyright © 2024-2025 Lux Industries Inc.
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: BSD-3-Clause-Ecosystem
 //
 // Zero-Knowledge Cryptographic Operations for MLX
 //
