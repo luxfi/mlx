@@ -151,6 +151,61 @@ All files reference the same knowledge base. Updates here propagate to all AI sy
 - Windows `__builtin_clz`/`typeof` intrinsic errors
 - CI speed: 15min → 2-4min with pre-built binaries
 
+## WebGPU / Portable Kernel Architecture (2026-01-03)
+
+### Overview
+Added WebGPU backend and portable WGSL kernels for cross-platform GPU compute.
+The architecture follows "write once, run anywhere" with native overrides for peak performance.
+
+### Backend Priority
+1. **Metal** - Apple Silicon native (fastest on Apple)
+2. **CUDA** - NVIDIA native (fastest on NVIDIA)  
+3. **WebGPU** - Portable via Dawn/wgpu (Metal/Vulkan/D3D12)
+4. **CPU** - Always available fallback
+
+### Directory Structure
+```
+mlx/backend/
+├── metal/           # Apple Metal backend (existing)
+├── cuda/            # NVIDIA CUDA backend (existing)
+├── cpu/             # CPU fallback (existing)
+└── webgpu/          # NEW: Portable WebGPU backend
+    ├── gpu.hpp      # From gpu.cpp (AnswerDotAI)
+    ├── gpu.cpp
+    └── kernels/     # WGSL portable kernels
+        ├── ntt.wgsl
+        └── modular.wgsl
+
+mlx/kernels/
+└── registry.h       # Backend selection logic
+```
+
+### Kernel Registry
+```cpp
+auto kernel = KernelRegistry::get("ntt_forward", Backend::Auto);
+kernel->dispatch(params);
+```
+
+### WGSL Limitations
+- No native u64 in WGSL → emulated with u32 pairs
+- 128-bit multiply done in software
+- For peak FHE performance, use Metal/CUDA overrides
+
+### New CUDA Kernels Added
+- `mlx/backend/cuda/ntt.cu` - NTT forward/inverse with Barrett reduction
+
+### Crypto Ops API
+Unified interface in `mlx/kernels/registry.h`:
+```cpp
+lux::gpu::cryptoops::ntt_forward(data, N, batch, Q, mu, twiddles);
+lux::gpu::cryptoops::mod_mul(result, a, b, size, Q, mu);
+```
+
+### ONNX Integration
+- Keep as optional adapter module (`gpu/onnx/`)
+- Not suitable for crypto/FHE native ops
+- Use for ML model import/export only
+
 ## Rules for AI Assistants
 
 1. **ALWAYS** update LLM.md with significant discoveries
@@ -158,6 +213,7 @@ All files reference the same knowledge base. Updates here propagate to all AI sy
 3. **NEVER** create random summary files - update THIS file
 4. **Windows users**: Recommend ONNX Runtime over MLX
 5. **Binary releases**: Only need 2/4 platforms (macOS ARM64 + Linux)
+6. **Kernel portability**: Write WGSL baseline first, then native overrides
 
 ---
 
