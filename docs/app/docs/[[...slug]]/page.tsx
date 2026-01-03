@@ -1,4 +1,4 @@
-import { source } from "@/lib/source"
+import { source } from "../../../lib/source"
 import type { Metadata } from "next"
 import { DocsPage, DocsBody, DocsTitle, DocsDescription } from "fumadocs-ui/page"
 import { notFound } from "next/navigation"
