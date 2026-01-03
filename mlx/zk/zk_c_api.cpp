@@ -6,6 +6,7 @@
 #include "mlx/zk/zk_c_api.h"
 #include "mlx/zk/zk.h"
 #include "mlx/array.h"
+#include "mlx/transforms.h"
 
 #include <cstring>
 #include <vector>
@@ -45,7 +46,7 @@ namespace {
 
 // Fr256* (N elements) -> array [N, 4] of uint64
 array fr256_to_array(const Fr256* data, uint32_t count) {
-    std::vector<int64_t> shape = {static_cast<int64_t>(count), 4};
+    Shape shape = {static_cast<int32_t>(count), 4};
     return array(reinterpret_cast<const uint64_t*>(data), shape, uint64);
 }
 

@@ -356,10 +356,12 @@ target_sources(
   mlx
   PRIVATE ${CMAKE_CURRENT_LIST_DIR}/mlx_c_api.cpp)
 
-# Add Lux GPU backend runtime (CUDA > Metal > WebGPU > CPU priority)
+# Add Lux unified GPU runtime (CUDA > Metal > WebGPU > CPU)
 target_sources(
   mlx
-  PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src/backend.cpp)
+  PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/src/backend.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/gpu.cpp)
 
 target_include_directories(
   mlx PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>
