@@ -145,7 +145,7 @@ High-performance CUDA kernels are available for NVIDIA GPUs through a separate c
 - Multi-GPU support
 - Production-ready for blockchain validators
 
-**Contact**: cuda@lux.industries
+**Contact**: licensing@luxindustries.xyz
 
 ## License
 
@@ -157,7 +157,7 @@ Copyright (c) 2024-2026 Lux Industries Inc.
 Commercial use of this software is permitted provided that the software 
 operates as part of, or in connection with, the Lux Network of blockchains.
 
-For external commercial licensing, contact: license@lux.industries
+For external commercial licensing, contact: licensing@luxindustries.xyz
 ```
 
 See [LICENSE](LICENSE) for full terms.
