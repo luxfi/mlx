@@ -1,0 +1,340 @@
+---
+title: Linear Algebra
+description: Matrix operations and decompositions
+---
+
+# Linear Algebra
+
+High-performance linear algebra operations accelerated on GPU.
+
+## Matrix Multiplication
+
+### matmul
+
+Matrix multiplication with broadcasting support.
+
+```cpp
+array matmul(const array& a, const array& b, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto A = random::normal({3, 4});
+auto B = random::normal({4, 5});
+auto C = matmul(A, B);  // Shape: {3, 5}
+
+// Batched matmul
+auto batch_A = random::normal({10, 3, 4});
+auto batch_B = random::normal({10, 4, 5});
+auto batch_C = matmul(batch_A, batch_B);  // Shape: {10, 3, 5}
+
+// Broadcasting
+auto A = random::normal({3, 4});
+auto batch_B = random::normal({10, 4, 5});
+auto C = matmul(A, batch_B);  // Shape: {10, 3, 5}
+```
+
+### addmm
+
+Matrix multiply-add: `out = beta * input + alpha * (a @ b)`.
+
+```cpp
+array addmm(
+    const array& c,
+    const array& a,
+    const array& b,
+    float alpha = 1.0f,
+    float beta = 1.0f,
+    StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto A = random::normal({3, 4});
+auto B = random::normal({4, 5});
+auto C = random::normal({3, 5});
+auto D = addmm(C, A, B, 1.0f, 1.0f);  // C + A @ B
+```
+
+### inner / outer
+
+Inner and outer products.
+
+```cpp
+array inner(const array& a, const array& b, StreamOrDevice s = {});
+array outer(const array& a, const array& b, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = array({1.0f, 2.0f, 3.0f});
+auto b = array({4.0f, 5.0f, 6.0f});
+
+auto dot = inner(a, b);   // Scalar: 32.0
+auto op = outer(a, b);    // Shape: {3, 3}
+```
+
+## Decompositions
+
+### svd
+
+Singular Value Decomposition: `A = U @ S @ Vh`.
+
+```cpp
+std::tuple<array, array, array> linalg::svd(
+    const array& a,
+    StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto A = random::normal({4, 3});
+auto [U, S, Vh] = linalg::svd(A);
+// U: {4, 4}, S: {3}, Vh: {3, 3}
+
+// Reconstruct
+auto reconstructed = matmul(U[{":", ":3"}], matmul(diag(S), Vh));
+```
+
+### qr
+
+QR Decomposition: `A = Q @ R`.
+
+```cpp
+std::tuple<array, array> linalg::qr(
+    const array& a,
+    StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto A = random::normal({4, 3});
+auto [Q, R] = linalg::qr(A);
+// Q: {4, 3} (orthonormal columns)
+// R: {3, 3} (upper triangular)
+```
+
+### cholesky
+
+Cholesky Decomposition for positive definite matrices: `A = L @ L.T`.
+
+```cpp
+array linalg::cholesky(
+    const array& a,
+    bool upper = false,
+    StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+// Create positive definite matrix
+auto A = random::normal({4, 4});
+auto psd = matmul(A, transpose(A));  // A @ A.T is positive definite
+
+auto L = linalg::cholesky(psd);  // Lower triangular
+// Verify: L @ L.T == psd
+```
+
+### eigh
+
+Eigenvalue decomposition for symmetric matrices.
+
+```cpp
+std::tuple<array, array> linalg::eigh(
+    const array& a,
+    const std::string& UPLO = "L",
+    StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto A = random::normal({4, 4});
+auto symmetric = add(A, transpose(A));  // Make symmetric
+
+auto [eigenvalues, eigenvectors] = linalg::eigh(symmetric);
+// eigenvalues: {4} (sorted ascending)
+// eigenvectors: {4, 4} (orthonormal columns)
+```
+
+## Solving Systems
+
+### solve
+
+Solve a linear system `A @ x = b`.
+
+```cpp
+array linalg::solve(
+    const array& a,
+    const array& b,
+    StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto A = random::normal({4, 4});
+auto b = random::normal({4});
+auto x = linalg::solve(A, b);
+
+// Verify: A @ x ≈ b
+auto residual = subtract(matmul(A, x), b);
+```
+
+### solve_triangular
+
+Solve a triangular system.
+
+```cpp
+array linalg::solve_triangular(
+    const array& a,
+    const array& b,
+    bool upper = false,
+    StreamOrDevice s = {});
+```
+
+### lstsq
+
+Least-squares solution to `A @ x = b`.
+
+```cpp
+array linalg::lstsq(
+    const array& a,
+    const array& b,
+    StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+// Overdetermined system
+auto A = random::normal({10, 3});
+auto b = random::normal({10});
+auto x = linalg::lstsq(A, b);  // Minimizes ||A @ x - b||
+```
+
+## Matrix Properties
+
+### inv
+
+Matrix inverse.
+
+```cpp
+array linalg::inv(const array& a, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto A = random::normal({4, 4});
+auto A_inv = linalg::inv(A);
+
+// Verify: A @ A_inv ≈ I
+auto product = matmul(A, A_inv);
+```
+
+### norm
+
+Matrix or vector norm.
+
+```cpp
+array linalg::norm(
+    const array& a,
+    const std::optional<std::variant<int, double, std::string>>& ord = std::nullopt,
+    std::optional<std::vector<int>> axis = std::nullopt,
+    bool keepdims = false,
+    StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto v = array({3.0f, 4.0f});
+auto l2 = linalg::norm(v);              // 5.0 (Euclidean)
+auto l1 = linalg::norm(v, 1);           // 7.0 (Manhattan)
+auto linf = linalg::norm(v, "inf");     // 4.0 (Max)
+
+auto M = random::normal({3, 4});
+auto fro = linalg::norm(M, "fro");      // Frobenius norm
+auto op = linalg::norm(M, 2);           // Operator 2-norm
+```
+
+### det
+
+Matrix determinant.
+
+```cpp
+array linalg::det(const array& a, StreamOrDevice s = {});
+```
+
+### trace
+
+Sum of diagonal elements.
+
+```cpp
+array trace(const array& a, int offset = 0, int axis1 = 0, int axis2 = 1, StreamOrDevice s = {});
+```
+
+### diagonal / diag
+
+Extract or construct diagonal.
+
+```cpp
+array diagonal(const array& a, int offset = 0, int axis1 = 0, int axis2 = 1, StreamOrDevice s = {});
+array diag(const array& a, int k = 0, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto v = array({1, 2, 3, 4});
+auto D = diag(v);  // 4x4 diagonal matrix
+
+auto M = random::normal({4, 4});
+auto d = diagonal(M);  // Extract main diagonal
+auto d1 = diagonal(M, 1);  // Extract superdiagonal
+```
+
+## Transpose and Reshape
+
+### transpose
+
+Transpose array dimensions.
+
+```cpp
+array transpose(const array& a, StreamOrDevice s = {});
+array transpose(const array& a, std::vector<int> axes, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto A = random::normal({3, 4});
+auto At = transpose(A);  // Shape: {4, 3}
+
+auto B = random::normal({2, 3, 4});
+auto Bt = transpose(B, {0, 2, 1});  // Shape: {2, 4, 3}
+```
+
+### reshape
+
+Reshape array to new dimensions.
+
+```cpp
+array reshape(const array& a, Shape shape, StreamOrDevice s = {});
+```
+
+### flatten
+
+Flatten to 1D.
+
+```cpp
+array flatten(const array& a, StreamOrDevice s = {});
+array flatten(const array& a, int start_axis, int end_axis = -1, StreamOrDevice s = {});
+```

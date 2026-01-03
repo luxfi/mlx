@@ -14,6 +14,7 @@
 #include "mlx/export.h"
 #include "mlx/fast.h"
 #include "mlx/fft.h"
+#include "mlx/ntt.h"
 #include "mlx/io.h"
 #include "mlx/linalg.h"
 #include "mlx/memory.h"

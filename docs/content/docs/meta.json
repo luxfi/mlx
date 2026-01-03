@@ -1,0 +1,23 @@
+{
+  "title": "Lux GPU Documentation",
+  "pages": [
+    "index",
+    "installation",
+    "---Concepts---",
+    "concepts/arrays",
+    "concepts/memory",
+    "concepts/streams",
+    "---API Reference---",
+    "api/creation",
+    "api/ops",
+    "api/linalg",
+    "api/fft",
+    "---Backends---",
+    "backends/metal",
+    "backends/cuda",
+    "backends/cpu",
+    "---Integration---",
+    "integration/cmake",
+    "integration/go"
+  ]
+}

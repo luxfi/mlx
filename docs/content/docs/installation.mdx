@@ -1,0 +1,151 @@
+---
+title: Installation
+description: Building and installing lux-gpu from source
+---
+
+# Installation
+
+## Requirements
+
+### macOS (Apple Silicon)
+
+- macOS 13.3+ (Ventura or later)
+- Xcode 15.0+ with Command Line Tools
+- CMake 3.25+
+
+```bash
+# Install Xcode Command Line Tools
+xcode-select --install
+
+# Install CMake via Homebrew
+brew install cmake
+```
+
+### Linux (CUDA)
+
+- CUDA Toolkit 12.0+
+- CMake 3.25+
+- GCC 11+ or Clang 14+
+
+```bash
+# Ubuntu/Debian
+sudo apt install cmake build-essential
+
+# Install CUDA from NVIDIA
+# https://developer.nvidia.com/cuda-downloads
+```
+
+## Building from Source
+
+### Clone Repository
+
+```bash
+git clone https://github.com/luxcpp/gpu.git
+cd gpu
+```
+
+### Configure and Build
+
+```bash
+# Create build directory
+cmake -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr/local
+
+# Build (use all cores)
+cmake --build build -j$(nproc)
+
+# Run tests
+ctest --test-dir build --output-on-failure
+
+# Install
+sudo cmake --install build
+```
+
+### Build Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `MLX_BUILD_METAL` | ON (macOS) | Build Metal backend |
+| `MLX_BUILD_CUDA` | OFF | Build CUDA backend |
+| `MLX_BUILD_CPU` | ON | Build CPU fallback |
+| `MLX_BUILD_TESTS` | ON | Build test suite |
+| `MLX_BUILD_EXAMPLES` | ON | Build examples |
+| `BUILD_SHARED_LIBS` | OFF | Build shared library |
+
+```bash
+# Example: Build with CUDA support
+cmake -B build \
+    -DMLX_BUILD_CUDA=ON \
+    -DMLX_BUILD_METAL=OFF
+
+# Example: Shared library
+cmake -B build -DBUILD_SHARED_LIBS=ON
+```
+
+## Verifying Installation
+
+```cpp
+// test.cpp
+#include <mlx/mlx.h>
+#include <iostream>
+
+int main() {
+    auto x = mlx::core::array({1.0f, 2.0f, 3.0f});
+    auto y = mlx::core::add(x, x);
+    mlx::core::eval(y);
+    std::cout << "lux-gpu works! " << y << std::endl;
+    return 0;
+}
+```
+
+```bash
+# Compile test
+g++ -std=c++17 test.cpp -I/usr/local/include -L/usr/local/lib -lmlx -o test
+
+# Run
+./test
+```
+
+## CMake Integration
+
+After installation, use in your CMake project:
+
+```cmake
+cmake_minimum_required(VERSION 3.25)
+project(myapp)
+
+find_package(mlx REQUIRED)
+
+add_executable(myapp main.cpp)
+target_link_libraries(myapp PRIVATE mlx::mlx)
+```
+
+## Troubleshooting
+
+### Metal Not Found
+
+Ensure Xcode is properly installed:
+
+```bash
+sudo xcode-select --switch /Applications/Xcode.app
+```
+
+### CUDA Not Found
+
+Set CUDA path:
+
+```bash
+export CUDA_HOME=/usr/local/cuda
+cmake -B build -DCMAKE_CUDA_COMPILER=$CUDA_HOME/bin/nvcc
+```
+
+### Missing Dependencies
+
+On macOS, ensure Accelerate framework is available (included with Xcode).
+
+On Linux, install BLAS:
+
+```bash
+sudo apt install libopenblas-dev
+```

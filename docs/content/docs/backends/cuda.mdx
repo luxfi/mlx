@@ -1,0 +1,308 @@
+---
+title: CUDA Backend
+description: NVIDIA GPU acceleration with CUDA
+---
+
+# CUDA Backend
+
+The CUDA backend provides GPU acceleration for NVIDIA GPUs. It supports CUDA Compute Capability 7.0+ (Volta and newer).
+
+## Requirements
+
+- Linux with NVIDIA GPU
+- CUDA Toolkit 12.0+
+- NVIDIA Driver 525+
+- Compute Capability 7.0+ (V100, RTX 2000+, A100, H100, etc.)
+
+## Build with CUDA
+
+Enable CUDA when building lux-gpu:
+
+```bash
+cmake -B build \
+    -DMLX_BUILD_CUDA=ON \
+    -DCMAKE_CUDA_ARCHITECTURES="70;75;80;86;89;90" \
+    ..
+
+cmake --build build -j
+```
+
+### CMake Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `MLX_BUILD_CUDA` | OFF | Enable CUDA backend |
+| `CMAKE_CUDA_ARCHITECTURES` | native | Target GPU architectures |
+| `MLX_CUDA_CUDNN` | ON | Enable cuDNN for convolutions |
+
+### Architecture Selection
+
+Target specific GPU generations:
+
+```bash
+# Volta and newer (recommended)
+-DCMAKE_CUDA_ARCHITECTURES="70;75;80;86;89;90"
+
+# Only H100
+-DCMAKE_CUDA_ARCHITECTURES="90"
+
+# Auto-detect local GPU
+-DCMAKE_CUDA_ARCHITECTURES=native
+```
+
+| Architecture | GPUs |
+|-------------|------|
+| 70 | V100 |
+| 75 | RTX 2000, T4 |
+| 80 | A100, A10 |
+| 86 | RTX 3000, A40 |
+| 89 | RTX 4000, L40 |
+| 90 | H100, H200 |
+
+## Checking Availability
+
+```cpp
+#include <mlx/mlx.h>
+using namespace mlx::core;
+
+if (cu::is_available()) {
+    std::cout << "CUDA GPU available\n";
+    set_default_device(Device::gpu);
+} else {
+    std::cout << "CUDA not available, using CPU\n";
+    set_default_device(Device::cpu);
+}
+```
+
+## Device Selection
+
+Select specific GPU in multi-GPU systems:
+
+```cpp
+// Use first GPU (default)
+set_default_device(Device(Device::gpu, 0));
+
+// Use second GPU
+set_default_device(Device(Device::gpu, 1));
+
+// Query available GPUs
+int num_gpus = cuda::device_count();
+for (int i = 0; i < num_gpus; i++) {
+    std::cout << "GPU " << i << ": " << cuda::device_name(i) << "\n";
+}
+```
+
+## Memory Management
+
+### Explicit Transfers
+
+Unlike Metal, CUDA requires explicit memory management:
+
+```cpp
+// Create on CPU
+auto cpu_data = ones({1000, 1000}, float32, Device::cpu);
+
+// Transfer to GPU
+auto gpu_data = to_device(cpu_data, Device::gpu);
+
+// Compute on GPU
+auto result = matmul(gpu_data, gpu_data);
+eval(result);
+
+// Transfer back if needed
+auto cpu_result = to_device(result, Device::cpu);
+eval(cpu_result);
+```
+
+### Memory Pooling
+
+CUDA memory allocation is cached for performance:
+
+```cpp
+// Memory is pooled and reused
+for (int i = 0; i < 100; i++) {
+    auto temp = random::normal({1000, 1000});
+    auto result = matmul(temp, temp);
+    eval(result);
+    // Memory returned to pool, not freed
+}
+
+// Explicitly clear the pool if needed
+cuda::clear_memory_pool();
+```
+
+### Pinned Memory
+
+Use pinned memory for faster CPU-GPU transfers:
+
+```cpp
+// Allocate pinned (page-locked) host memory
+auto pinned_data = cuda::allocate_pinned({1000, 1000}, float32);
+
+// Transfers are faster with pinned memory
+auto gpu_data = to_device(pinned_data, Device::gpu);  // Faster!
+```
+
+## Stream Management
+
+### Multiple Streams
+
+CUDA streams enable concurrent execution:
+
+```cpp
+auto stream1 = new_stream(Device::gpu);
+auto stream2 = new_stream(Device::gpu);
+
+// These can execute concurrently
+auto result1 = matmul(a, b, stream1);
+auto result2 = matmul(c, d, stream2);
+
+// Synchronize all streams
+synchronize();
+```
+
+### Stream Priority
+
+Set stream priority for scheduling:
+
+```cpp
+auto high_priority = cuda::new_stream_with_priority(Device::gpu, -1);
+auto low_priority = cuda::new_stream_with_priority(Device::gpu, 0);
+
+// High priority operations preempt low priority
+auto urgent = matmul(a, b, high_priority);
+auto background = matmul(c, d, low_priority);
+```
+
+## Tensor Cores
+
+Leverage Tensor Cores for faster matrix operations:
+
+```cpp
+// Use float16 or bfloat16 for Tensor Core acceleration
+auto a = astype(random::normal({4096, 4096}), float16);
+auto b = astype(random::normal({4096, 4096}), float16);
+
+// Matmul automatically uses Tensor Cores when:
+// 1. Dtype is float16 or bfloat16
+// 2. Dimensions are multiples of 8 (or 16 for some ops)
+// 3. GPU has Tensor Cores (Volta+)
+auto c = matmul(a, b);  // Uses Tensor Cores
+```
+
+### Mixed Precision
+
+```cpp
+// Compute in float16, accumulate in float32
+auto a = astype(random::normal({4096, 4096}), float16);
+auto b = astype(random::normal({4096, 4096}), float16);
+
+// Result is float32 for precision
+auto c = matmul(a, b, float32);  // TF32 internally
+```
+
+## Multi-GPU
+
+### Data Parallelism
+
+```cpp
+// Split data across GPUs
+auto data = random::normal({8192, 1024});
+int num_gpus = cuda::device_count();
+
+std::vector<array> chunks;
+for (int i = 0; i < num_gpus; i++) {
+    auto chunk = slice(data, {i * 2048, 0}, {(i + 1) * 2048, 1024});
+    auto gpu_chunk = to_device(chunk, Device(Device::gpu, i));
+    chunks.push_back(matmul(gpu_chunk, weights));
+}
+
+// Gather results
+synchronize();
+auto result = concatenate(chunks, 0);
+```
+
+### NCCL Communication
+
+For efficient multi-GPU communication:
+
+```cpp
+// All-reduce across GPUs
+auto local_gradients = compute_gradients(data, Device(Device::gpu, rank));
+auto global_gradients = cuda::all_reduce(local_gradients, "sum");
+```
+
+## Debugging
+
+### CUDA Error Checking
+
+```cpp
+// Enable verbose error messages
+cuda::set_debug_mode(true);
+
+try {
+    auto result = some_operation();
+    eval(result);
+} catch (const std::runtime_error& e) {
+    std::cerr << "CUDA error: " << e.what() << "\n";
+}
+```
+
+### Memory Debugging
+
+```cpp
+// Check memory usage
+size_t free, total;
+cuda::memory_info(&free, &total);
+std::cout << "GPU Memory: " << (total - free) / 1e9 << " / " << total / 1e9 << " GB\n";
+
+// Detect memory leaks
+cuda::reset_peak_memory_stats();
+// ... run operations ...
+std::cout << "Peak memory: " << cuda::peak_memory_usage() / 1e9 << " GB\n";
+```
+
+## Troubleshooting
+
+### CUDA Not Found
+
+```bash
+# Check CUDA installation
+nvcc --version
+nvidia-smi
+
+# Set CUDA paths if needed
+export CUDA_HOME=/usr/local/cuda
+export PATH=$CUDA_HOME/bin:$PATH
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+```
+
+### Out of Memory
+
+```cpp
+// Clear memory pools
+cuda::clear_memory_pool();
+
+// Use gradient checkpointing for large models
+auto result = checkpoint(forward_pass, inputs);
+
+// Process in smaller batches
+for (auto batch : split(data, batch_size)) {
+    auto output = model(batch);
+    eval(output);  // Free intermediates
+}
+```
+
+### Slow Performance
+
+```cpp
+// Ensure using GPU, not CPU
+assert(default_device().type == Device::gpu);
+
+// Check for CPU fallbacks
+cuda::set_debug_mode(true);  // Logs CPU fallbacks
+
+// Warm up JIT compilation
+matmul(random::normal({100, 100}), random::normal({100, 100}));
+eval();
+```

@@ -1,0 +1,274 @@
+---
+title: FFT
+description: Fast Fourier Transform operations
+---
+
+# FFT
+
+Fast Fourier Transform operations for signal processing and polynomial arithmetic. These operations are critical for the lux-lattice library's Number Theoretic Transform (NTT).
+
+## Complex FFT
+
+### fft
+
+1D complex-to-complex FFT.
+
+```cpp
+array fft::fft(const array& a, int n = -1, int axis = -1, StreamOrDevice s = {});
+```
+
+**Parameters:**
+
+- `a` - Input array (real or complex)
+- `n` - Length of transform (default: input size along axis)
+- `axis` - Axis to transform (default: last axis)
+
+**Examples:**
+
+```cpp
+auto x = random::normal({1024});
+auto X = fft::fft(x);  // Shape: {1024}, dtype: complex64
+
+// Zero-padded FFT
+auto X_padded = fft::fft(x, 2048);  // Shape: {2048}
+
+// Transform specific axis
+auto batch = random::normal({10, 256});
+auto batch_fft = fft::fft(batch, -1, 1);  // FFT along axis 1
+```
+
+### ifft
+
+Inverse 1D complex-to-complex FFT.
+
+```cpp
+array fft::ifft(const array& a, int n = -1, int axis = -1, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto x = random::normal({1024});
+auto X = fft::fft(x);
+auto x_reconstructed = fft::ifft(X);
+// x_reconstructed ≈ x
+```
+
+### fft2 / ifft2
+
+2D complex FFT.
+
+```cpp
+array fft::fft2(const array& a, const Shape& s = {}, const std::vector<int>& axes = {-2, -1}, StreamOrDevice s = {});
+array fft::ifft2(const array& a, const Shape& s = {}, const std::vector<int>& axes = {-2, -1}, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto image = random::normal({256, 256});
+auto spectrum = fft::fft2(image);  // 2D spectrum
+auto reconstructed = fft::ifft2(spectrum);
+```
+
+### fftn / ifftn
+
+N-dimensional complex FFT.
+
+```cpp
+array fft::fftn(const array& a, const Shape& s = {}, const std::vector<int>& axes = {}, StreamOrDevice s = {});
+array fft::ifftn(const array& a, const Shape& s = {}, const std::vector<int>& axes = {}, StreamOrDevice s = {});
+```
+
+## Real FFT
+
+### rfft
+
+1D real-to-complex FFT. Output is only the non-negative frequencies.
+
+```cpp
+array fft::rfft(const array& a, int n = -1, int axis = -1, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto x = random::normal({1024});  // Real input
+auto X = fft::rfft(x);            // Shape: {513} (only positive frequencies)
+```
+
+### irfft
+
+Inverse 1D real FFT. Complex input, real output.
+
+```cpp
+array fft::irfft(const array& a, int n = -1, int axis = -1, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto x = random::normal({1024});
+auto X = fft::rfft(x);
+auto x_reconstructed = fft::irfft(X, 1024);  // Must specify n for exact reconstruction
+```
+
+### rfft2 / irfft2
+
+2D real FFT.
+
+```cpp
+array fft::rfft2(const array& a, const Shape& s = {}, const std::vector<int>& axes = {-2, -1}, StreamOrDevice s = {});
+array fft::irfft2(const array& a, const Shape& s = {}, const std::vector<int>& axes = {-2, -1}, StreamOrDevice s = {});
+```
+
+### rfftn / irfftn
+
+N-dimensional real FFT.
+
+```cpp
+array fft::rfftn(const array& a, const Shape& s = {}, const std::vector<int>& axes = {}, StreamOrDevice s = {});
+array fft::irfftn(const array& a, const Shape& s = {}, const std::vector<int>& axes = {}, StreamOrDevice s = {});
+```
+
+## Frequency Utilities
+
+### fftfreq
+
+Return FFT sample frequencies.
+
+```cpp
+array fft::fftfreq(int n, double d = 1.0, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto freq = fft::fftfreq(8, 1.0);
+// [-0.5, -0.375, -0.25, -0.125, 0, 0.125, 0.25, 0.375]
+```
+
+### rfftfreq
+
+Return real FFT sample frequencies.
+
+```cpp
+array fft::rfftfreq(int n, double d = 1.0, StreamOrDevice s = {});
+```
+
+### fftshift / ifftshift
+
+Shift zero-frequency to center.
+
+```cpp
+array fft::fftshift(const array& a, const std::optional<std::vector<int>>& axes = std::nullopt, StreamOrDevice s = {});
+array fft::ifftshift(const array& a, const std::optional<std::vector<int>>& axes = std::nullopt, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto X = fft::fft(x);
+auto X_centered = fft::fftshift(X);  // DC at center
+auto X_original = fft::ifftshift(X_centered);  // Undo shift
+```
+
+## Applications
+
+### Convolution via FFT
+
+```cpp
+array fft_convolve(const array& a, const array& b) {
+    int n = a.size() + b.size() - 1;
+
+    // Pad to power of 2 for efficiency
+    int padded = 1;
+    while (padded < n) padded *= 2;
+
+    auto A = fft::fft(a, padded);
+    auto B = fft::fft(b, padded);
+    auto C = multiply(A, B);
+    auto c = fft::ifft(C);
+
+    return slice(c, {0}, {n});  // Remove padding
+}
+```
+
+### Cross-Correlation
+
+```cpp
+array cross_correlate(const array& a, const array& b) {
+    auto A = fft::fft(a);
+    auto B = fft::fft(b);
+    auto C = multiply(A, conj(B));  // A * conj(B)
+    return fft::ifft(C);
+}
+```
+
+### Power Spectrum
+
+```cpp
+array power_spectrum(const array& signal) {
+    auto X = fft::rfft(signal);
+    return multiply(X, conj(X));  // |X|^2
+}
+```
+
+## Performance Tips
+
+### Use Power-of-2 Sizes
+
+FFTs are fastest when the size is a power of 2:
+
+```cpp
+// Slow: arbitrary size
+auto X = fft::fft(signal);  // size 1000
+
+// Fast: pad to power of 2
+auto X = fft::fft(signal, 1024);
+```
+
+### Batch Transforms
+
+Process multiple signals at once:
+
+```cpp
+// Single signal at a time (slow)
+std::vector<array> results;
+for (const auto& sig : signals) {
+    results.push_back(fft::fft(sig));
+}
+
+// Batched (fast)
+auto batch = stack(signals, 0);  // Shape: {N, signal_length}
+auto batch_fft = fft::fft(batch, -1, 1);  // FFT along axis 1
+```
+
+### Use Real FFT for Real Data
+
+When input is real-valued, use `rfft` instead of `fft`:
+
+```cpp
+auto x = random::normal({1024});  // Real data
+
+// Less efficient
+auto X1 = fft::fft(x);  // Output: {1024} complex
+
+// More efficient
+auto X2 = fft::rfft(x);  // Output: {513} complex (half the data)
+```
+
+## Integration with lux-lattice
+
+The FFT operations here are used by lux-lattice for Number Theoretic Transform (NTT) in polynomial ring arithmetic:
+
+```cpp
+// In lux-lattice, NTT is FFT over finite field
+// The GPU-accelerated FFT provides the foundation
+auto ntt = [](const array& poly, uint64_t modulus, uint64_t root) {
+    // NTT implementation using fft primitives
+    // with modular arithmetic
+};
+```
+
+See the [lux-lattice documentation](https://luxcpp.github.io/lattice/) for NTT details.

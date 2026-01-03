@@ -1,0 +1,203 @@
+---
+title: Arrays
+description: Core array data structure and semantics
+---
+
+# Arrays
+
+The `array` class is the fundamental data structure in lux-gpu. It represents an N-dimensional array of homogeneous elements with support for lazy evaluation and automatic GPU acceleration.
+
+## Creating Arrays
+
+### From Scalars
+
+```cpp
+#include <mlx/mlx.h>
+
+using namespace mlx::core;
+
+// Scalar array (0-dimensional)
+auto scalar = array(42.0f);              // float32
+auto integer = array(42);                // int32
+auto complex_num = array({1.0f, 2.0f});  // complex64
+```
+
+### From Initializer Lists
+
+```cpp
+// 1D array
+auto vec = array({1.0f, 2.0f, 3.0f, 4.0f});
+
+// With explicit dtype
+auto ints = array({1, 2, 3, 4}, int32);
+auto doubles = array({1.0, 2.0, 3.0}, float64);
+```
+
+### Factory Functions
+
+```cpp
+// Zeros and ones
+auto z = zeros({3, 4});           // 3x4 zeros, float32
+auto o = ones({2, 3}, float16);   // 2x3 ones, float16
+
+// Filled with value
+auto f = full({5, 5}, 3.14f);     // 5x5 filled with 3.14
+
+// Ranges
+auto r = arange(0.0, 10.0, 0.5);  // [0, 0.5, 1.0, ..., 9.5]
+auto l = linspace(0, 1, 11);      // 11 points from 0 to 1
+
+// Identity and eye
+auto I = identity(4);             // 4x4 identity matrix
+auto E = eye(3, 5, 1);            // 3x5, ones on k=1 diagonal
+```
+
+### From Raw Data
+
+```cpp
+// From pointer (copies data)
+float data[] = {1, 2, 3, 4, 5, 6};
+auto a = array(data, data + 6, {2, 3});  // 2x3 array
+
+// With custom deleter (no copy)
+auto buf = new float[1024];
+auto b = array(buf, {32, 32}, float32,
+    [](void* ptr) { delete[] static_cast<float*>(ptr); });
+```
+
+## Array Properties
+
+```cpp
+auto a = array({1, 2, 3, 4, 5, 6}, {2, 3}, float32);
+
+// Shape and size
+a.shape();      // {2, 3}
+a.ndim();       // 2
+a.size();       // 6
+a.itemsize();   // 4 (bytes per element)
+a.nbytes();     // 24 (total bytes)
+
+// Data type
+a.dtype();      // float32
+
+// Strides (in elements)
+a.strides();    // {3, 1} for row-major
+```
+
+## Data Types
+
+| Type | C++ Type | Description |
+|------|----------|-------------|
+| `bool_` | `bool` | Boolean |
+| `uint8` | `uint8_t` | Unsigned 8-bit |
+| `uint16` | `uint16_t` | Unsigned 16-bit |
+| `uint32` | `uint32_t` | Unsigned 32-bit |
+| `uint64` | `uint64_t` | Unsigned 64-bit |
+| `int8` | `int8_t` | Signed 8-bit |
+| `int16` | `int16_t` | Signed 16-bit |
+| `int32` | `int32_t` | Signed 32-bit |
+| `int64` | `int64_t` | Signed 64-bit |
+| `float16` | `float16_t` | Half precision |
+| `bfloat16` | `bfloat16_t` | Brain float |
+| `float32` | `float` | Single precision |
+| `float64` | `double` | Double precision |
+| `complex64` | `complex<float>` | Complex single |
+
+```cpp
+// Type conversion
+auto a = array({1, 2, 3}, int32);
+auto b = astype(a, float32);     // Convert to float
+```
+
+## Lazy Evaluation
+
+Arrays are evaluated lazily - operations build a computation graph rather than executing immediately.
+
+```cpp
+auto a = array({1.0f, 2.0f, 3.0f});
+auto b = array({4.0f, 5.0f, 6.0f});
+
+// These don't compute anything yet
+auto c = add(a, b);
+auto d = multiply(c, c);
+auto e = sum(d);
+
+// Computation happens here
+eval(e);  // Forces evaluation of entire graph
+
+// Now e contains the result
+std::cout << e << std::endl;  // Prints scalar result
+```
+
+### Why Lazy Evaluation?
+
+1. **Optimization** - The runtime can fuse operations and minimize memory traffic
+2. **Async Execution** - GPU operations can be queued without blocking
+3. **Memory Efficiency** - Intermediate results don't need storage
+
+### Forcing Evaluation
+
+```cpp
+// Evaluate single array
+eval(a);
+
+// Evaluate multiple arrays
+eval({a, b, c});
+
+// Synchronous evaluate (wait for completion)
+synchronize();
+```
+
+## Indexing and Slicing
+
+```cpp
+auto a = arange(24).reshape({4, 6});
+
+// Basic indexing
+auto row = a[2];           // Row 2 (1D array)
+auto elem = a[{1, 3}];     // Element at (1, 3)
+
+// Slicing
+auto cols = slice(a, {}, {1, 4});     // Columns 1-3
+auto step = slice(a, {0, -1, 2}, {}); // Every other row
+```
+
+## Reshaping
+
+```cpp
+auto a = arange(12);
+
+// Reshape
+auto b = reshape(a, {3, 4});
+auto c = reshape(a, {2, 2, 3});
+
+// Flatten
+auto flat = flatten(c);
+
+// Transpose
+auto t = transpose(b);             // Swap last two dims
+auto t2 = transpose(b, {1, 0});    // Explicit axes
+```
+
+## Memory Layout
+
+Arrays use row-major (C-style) layout by default:
+
+```cpp
+auto a = array({1, 2, 3, 4, 5, 6}, {2, 3});
+// Memory: [1, 2, 3, 4, 5, 6]
+// Layout: [[1, 2, 3],
+//          [4, 5, 6]]
+
+a.strides();  // {3, 1} - move 3 elements to next row
+```
+
+Views share memory with the original array when possible:
+
+```cpp
+auto a = arange(12).reshape({3, 4});
+auto b = transpose(a);  // View, not copy
+
+// To force a copy:
+auto c = copy(b);
+```

@@ -1,0 +1,112 @@
+---
+title: Lux GPU
+description: GPU acceleration foundation for the Lux cryptographic stack
+---
+
+# Lux GPU
+
+High-performance array operations accelerated by Metal (Apple Silicon) and CUDA (NVIDIA). This library serves as the foundation layer for all GPU-accelerated cryptographic operations in the Lux ecosystem.
+
+## Overview
+
+Lux GPU is based on [MLX](https://github.com/ml-explore/mlx) from Apple's machine learning research team, extended for cryptographic workloads. It provides:
+
+- **Unified Memory Model** - Arrays live in shared memory accessible from both CPU and GPU
+- **Lazy Evaluation** - Computations are deferred until results are actually needed
+- **Multi-Backend** - Native Metal (Apple Silicon), CUDA (NVIDIA), and CPU fallback
+- **Optimized Transforms** - FFT/NTT operations tuned for polynomial arithmetic
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   lux-crypto (Go)                   │
+│              BLS12-381, ML-DSA, Threshold           │
+└─────────────────────┬───────────────────────────────┘
+                      │
+┌─────────────────────┴───────────────────────────────┐
+│                   lux-lattice                        │
+│              NTT, Polynomial Ring, RLWE              │
+└─────────────────────┬───────────────────────────────┘
+                      │
+┌─────────────────────┴───────────────────────────────┐
+│                   lux-gpu (this)                     │
+│           Array Ops, FFT, Memory, Backends           │
+└─────────────────────┬───────────────────────────────┘
+                      │
+        ┌─────────────┼─────────────┐
+        ▼             ▼             ▼
+    ┌───────┐    ┌────────┐    ┌───────┐
+    │ Metal │    │  CUDA  │    │  CPU  │
+    └───────┘    └────────┘    └───────┘
+```
+
+## Quick Start
+
+```cpp
+#include <mlx/mlx.h>
+
+using namespace mlx::core;
+
+int main() {
+    // Create arrays
+    auto a = array({1.0f, 2.0f, 3.0f, 4.0f});
+    auto b = array({5.0f, 6.0f, 7.0f, 8.0f});
+
+    // GPU-accelerated operations
+    auto c = add(a, b);
+
+    // Matrix multiplication
+    auto A = reshape(a, {2, 2});
+    auto B = reshape(b, {2, 2});
+    auto C = matmul(A, B);
+
+    // Evaluate and print
+    eval(C);
+    std::cout << C << std::endl;
+
+    return 0;
+}
+```
+
+## Features
+
+### Array Operations
+
+- Creation: `zeros`, `ones`, `full`, `arange`, `linspace`
+- Manipulation: `reshape`, `transpose`, `concatenate`, `split`
+- Arithmetic: `add`, `subtract`, `multiply`, `divide`
+- Comparison: `equal`, `greater`, `less`, `where`
+
+### Linear Algebra
+
+- `matmul` - Matrix multiplication
+- `inv` - Matrix inverse
+- `svd` - Singular value decomposition
+- `qr` - QR decomposition
+- `cholesky` - Cholesky decomposition
+
+### Signal Processing
+
+- `fft.fft` / `fft.ifft` - Fast Fourier Transform
+- `fft.fft2` / `fft.ifft2` - 2D FFT
+- `fft.rfft` / `fft.irfft` - Real FFT
+
+### Memory Management
+
+- Unified memory between CPU and GPU
+- Automatic memory pooling
+- Explicit control via `Stream` objects
+
+## Usage in Lux Stack
+
+This library is used by other Lux C++ libraries:
+
+- **lux-lattice** - Uses FFT for Number Theoretic Transform (NTT)
+- **lux-crypto** - Uses GPU for BLS12-381 pairing computations
+
+## Links
+
+- [Installation Guide](/gpu/docs/installation)
+- [API Reference](/gpu/docs/api/creation)
+- [GitHub Repository](https://github.com/luxcpp/gpu)

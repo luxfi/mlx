@@ -64,3 +64,6 @@ if(MLX_BUILD_METAL OR MLX_BUILD_CUDA)
 else()
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/backend/no_gpu)
 endif()
+
+# ZK (Zero-Knowledge) module
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/zk)

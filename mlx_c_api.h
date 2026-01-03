@@ -55,6 +55,55 @@ void* mlx_from_slice(float* data, int data_len, int* shape, int ndim, int dtype)
 // Element-wise maximum
 void* mlx_maximum(void* a, void* b);
 
+// ============================================================================
+// NTT (Number Theoretic Transform) for Lattice Cryptography
+// ============================================================================
+
+// Opaque context for NTT operations
+typedef struct MlxNTTContext MlxNTTContext;
+
+// Check if GPU-accelerated NTT is available
+bool mlx_ntt_gpu_available(void);
+
+// Get NTT backend name ("Metal (MLX)", "CUDA", or "CPU")
+const char* mlx_ntt_backend_name(void);
+
+// Create NTT context for given polynomial size N and modulus Q
+// N must be a power of 2, Q must be an NTT-friendly prime (Q ≡ 1 mod 2N)
+MlxNTTContext* mlx_ntt_create(uint32_t N, uint64_t Q);
+
+// Destroy NTT context and free resources
+void mlx_ntt_destroy(MlxNTTContext* ctx);
+
+// Forward NTT (in-place): polynomial from coefficient to evaluation form
+// data: array of batch * N uint64_t values
+// batch: number of polynomials to transform
+// Returns 0 on success, non-zero on error
+int mlx_ntt_forward(MlxNTTContext* ctx, uint64_t* data, uint32_t batch);
+
+// Inverse NTT (in-place): polynomial from evaluation to coefficient form
+// Returns 0 on success, non-zero on error
+int mlx_ntt_inverse(MlxNTTContext* ctx, uint64_t* data, uint32_t batch);
+
+// Pointwise modular multiplication: result[i] = a[i] * b[i] mod Q
+// Returns 0 on success, non-zero on error
+int mlx_ntt_pointwise_mul(
+    MlxNTTContext* ctx,
+    uint64_t* result,
+    const uint64_t* a,
+    const uint64_t* b,
+    uint32_t batch);
+
+// Polynomial multiplication via NTT convolution
+// Computes: forward(a), forward(b), pointwise_mul, inverse
+// Returns 0 on success, non-zero on error
+int mlx_ntt_polymul(
+    MlxNTTContext* ctx,
+    uint64_t* result,
+    const uint64_t* a,
+    const uint64_t* b,
+    uint32_t batch);
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,0 +1,225 @@
+---
+title: Metal Backend
+description: Apple Silicon GPU acceleration with Metal
+---
+
+# Metal Backend
+
+The Metal backend provides GPU acceleration for Apple Silicon (M1, M2, M3, M4) and Intel Macs with AMD GPUs. This is the primary GPU backend on macOS.
+
+## Requirements
+
+- macOS 13.3+ (Ventura or later)
+- Apple Silicon (M1/M2/M3/M4) or AMD GPU
+- Xcode Command Line Tools
+
+## Checking Availability
+
+```cpp
+#include <mlx/mlx.h>
+using namespace mlx::core;
+
+if (metal::is_available()) {
+    std::cout << "Metal GPU available\n";
+    set_default_device(Device::gpu);
+} else {
+    std::cout << "Falling back to CPU\n";
+    set_default_device(Device::cpu);
+}
+```
+
+## Device Information
+
+Query GPU capabilities and memory:
+
+```cpp
+auto info = metal::device_info();
+
+// Common fields
+auto name = std::get<std::string>(info.at("device_name"));
+auto memory = std::get<size_t>(info.at("memory_size"));
+auto max_buffer = std::get<size_t>(info.at("max_buffer_length"));
+auto recommended_memory = std::get<size_t>(info.at("max_recommended_working_set_size"));
+
+std::cout << "Device: " << name << "\n";
+std::cout << "Memory: " << memory / (1024*1024*1024) << " GB\n";
+```
+
+### Device Info Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `device_name` | string | GPU model name |
+| `memory_size` | size_t | Total GPU memory in bytes |
+| `max_buffer_length` | size_t | Max single buffer size |
+| `max_recommended_working_set_size` | size_t | Recommended memory limit |
+| `architecture` | string | GPU architecture family |
+
+## GPU Tracing
+
+Capture GPU traces for debugging and profiling with Xcode Instruments:
+
+```cpp
+// Start capturing to a file
+metal::start_capture("/path/to/trace.gputrace");
+
+// Run your computations
+auto a = random::normal({1000, 1000});
+auto b = matmul(a, a);
+eval(b);
+
+// Stop and save the capture
+metal::stop_capture();
+```
+
+### Using with Xcode Instruments
+
+1. Open the `.gputrace` file in Xcode
+2. Use the GPU Trace template
+3. Analyze:
+   - Kernel execution times
+   - Memory bandwidth
+   - Occupancy and utilization
+   - Pipeline stalls
+
+## Metal Shaders
+
+The library uses custom Metal shaders for optimal performance:
+
+### Shader Compilation
+
+Metal shaders are compiled at runtime with aggressive caching:
+
+```cpp
+// Shaders are JIT-compiled on first use
+auto a = ones({1000, 1000}, float32);  // Compiles unary op shader
+auto b = matmul(a, a);                  // Compiles matmul shader
+eval(b);
+
+// Subsequent calls use cached shaders
+auto c = matmul(a, a);  // Uses cached shader
+```
+
+### Custom Kernels
+
+For advanced users, custom Metal kernels can be integrated:
+
+```cpp
+// Register custom kernel source
+metal::register_library(
+    "my_kernels",
+    R"(
+    #include <metal_stdlib>
+    using namespace metal;
+
+    kernel void my_relu(
+        device const float* input [[buffer(0)]],
+        device float* output [[buffer(1)]],
+        uint id [[thread_position_in_grid]]
+    ) {
+        output[id] = max(0.0f, input[id]);
+    }
+    )"
+);
+```
+
+## Memory Management
+
+### Unified Memory Architecture
+
+Apple Silicon features unified memory, shared between CPU and GPU:
+
+```cpp
+// No explicit data transfers needed
+auto cpu_data = ones({1000, 1000}, float32, Device::cpu);
+auto gpu_result = matmul(cpu_data, cpu_data, Device::gpu);  // Automatic!
+eval(gpu_result);
+
+// Access result on CPU - no copy needed
+auto cpu_result = to_cpu(gpu_result);
+```
+
+### Memory Limits
+
+Respect GPU memory limits for large operations:
+
+```cpp
+auto info = metal::device_info();
+auto max_memory = std::get<size_t>(info.at("max_recommended_working_set_size"));
+
+// Check if array fits
+size_t array_size = 4096UL * 4096 * sizeof(float);
+if (array_size > max_memory * 0.8) {
+    std::cerr << "Warning: Array may exceed GPU memory\n";
+}
+```
+
+## Performance Tips
+
+### 1. Batch Operations
+
+```cpp
+// Inefficient: many small operations
+for (int i = 0; i < 1000; i++) {
+    results.push_back(matmul(inputs[i], weights));
+}
+
+// Efficient: batched operation
+auto batched = stack(inputs, 0);
+auto all_results = matmul(batched, weights);
+```
+
+### 2. Avoid Synchronization
+
+```cpp
+// Bad: forces GPU sync on each iteration
+for (int i = 0; i < 100; i++) {
+    auto result = matmul(a, b);
+    eval(result);  // GPU sync!
+    std::cout << result.item<float>() << "\n";  // Another sync!
+}
+
+// Good: batch then sync once
+std::vector<array> results;
+for (int i = 0; i < 100; i++) {
+    results.push_back(matmul(a, b));
+}
+eval(results);  // Single sync
+```
+
+### 3. Use Appropriate Dtypes
+
+```cpp
+// float16 is faster on Apple Silicon
+auto a = astype(random::normal({1000, 1000}), float16);
+auto b = matmul(a, a);  // Faster than float32
+```
+
+## Troubleshooting
+
+### Metal Not Available
+
+```cpp
+if (!metal::is_available()) {
+    // Possible causes:
+    // 1. Running on non-Apple hardware
+    // 2. macOS version too old (need 13.3+)
+    // 3. Running in VM without GPU passthrough
+    // 4. GPU disabled in system settings
+}
+```
+
+### Out of Memory
+
+```cpp
+// Split large operations
+auto huge = random::normal({100000, 100000});  // May fail
+
+// Process in chunks
+size_t chunk_size = 10000;
+for (size_t i = 0; i < 100000; i += chunk_size) {
+    auto chunk = slice(huge, {i, 0}, {i + chunk_size, 100000});
+    process(chunk);
+    eval();  // Free intermediate memory
+}
+```

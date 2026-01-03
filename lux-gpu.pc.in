@@ -1,0 +1,54 @@
+# Find lux-gpu
+#
+# Lux GPU Library - Cross-platform GPU acceleration
+# Supports: Metal (Apple), CUDA (NVIDIA), CPU (all platforms)
+#
+# Defines the following variables:
+#
+#   lux-gpu_FOUND           : True if lux-gpu is found
+#   GPU_INCLUDE_DIRS        : Include directories
+#   GPU_LIBRARIES           : Libraries to link against
+#   GPU_CXX_FLAGS           : Additional compiler flags
+#   GPU_BUILD_ACCELERATE    : True if built with Apple Accelerate
+#   GPU_BUILD_METAL         : True if built with Metal backend
+#   GPU_BUILD_CUDA          : True if built with CUDA backend
+
+@PACKAGE_INIT@
+
+include(@PACKAGE_GPU_CMAKE_INSTALL_MODULE_DIR@/lux-gpuTargets.cmake)
+
+set_and_check(GPU_LIBRARY_DIRS @PACKAGE_CMAKE_INSTALL_LIBDIR@)
+set_and_check(GPU_INCLUDE_DIRS @PACKAGE_CMAKE_INSTALL_INCLUDEDIR@)
+set(GPU_LIBRARIES lux::gpu)
+
+find_library(GPU_LIBRARY luxgpu PATHS ${GPU_LIBRARY_DIRS})
+
+if (@MLX_BUILD_ACCELERATE@)
+    set(GPU_BUILD_ACCELERATE ON)
+    set(GPU_CXX_FLAGS ${GPU_CXX_FLAGS} -DACCELERATE_NEW_LAPACK)
+endif()
+
+if (@MLX_BUILD_METAL@)
+    set(GPU_BUILD_METAL ON)
+    set(GPU_CXX_FLAGS ${GPU_CXX_FLAGS} -D_METAL_)
+    set(GPU_INCLUDE_DIRS 
+        "${GPU_INCLUDE_DIRS};"
+        @PACKAGE_CMAKE_INSTALL_INCLUDEDIR@/metal_cpp
+    )
+    if(@MLX_METAL_VERSION@ GREATER_EQUAL 310)
+      set(GPU_INCLUDE_DIRS
+        "${GPU_INCLUDE_DIRS};"
+        @PACKAGE_CMAKE_INSTALL_INCLUDEDIR@/mlx/backend/metal/kernels/metal_3_1)
+    else()
+      set(GPU_INCLUDE_DIRS
+        "${GPU_INCLUDE_DIRS};"
+        @PACKAGE_CMAKE_INSTALL_INCLUDEDIR@/mlx/backend/metal/kernels/metal_3_0)
+    endif()
+endif()
+
+if (@MLX_BUILD_CUDA@)
+    set(GPU_BUILD_CUDA ON)
+endif()
+
+include(FindPackageHandleStandardArgs)
+find_package_handle_standard_args(lux-gpu DEFAULT_MSG GPU_LIBRARY GPU_INCLUDE_DIRS)

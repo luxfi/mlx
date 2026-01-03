@@ -1,0 +1,304 @@
+---
+title: Operations
+description: Mathematical and element-wise operations
+---
+
+# Operations
+
+Core mathematical operations on arrays. All operations support broadcasting and run on GPU when available.
+
+## Arithmetic
+
+### add
+
+Element-wise addition.
+
+```cpp
+array add(const array& a, const array& b, StreamOrDevice s = {});
+array operator+(const array& a, const array& b);
+```
+
+**Examples:**
+
+```cpp
+auto a = array({1.0f, 2.0f, 3.0f});
+auto b = array({4.0f, 5.0f, 6.0f});
+auto c = add(a, b);       // [5.0, 7.0, 9.0]
+auto d = a + b;           // Same as add(a, b)
+
+// Broadcasting
+auto e = add(a, array(10.0f));  // [11.0, 12.0, 13.0]
+```
+
+### subtract
+
+Element-wise subtraction.
+
+```cpp
+array subtract(const array& a, const array& b, StreamOrDevice s = {});
+array operator-(const array& a, const array& b);
+```
+
+### multiply
+
+Element-wise multiplication.
+
+```cpp
+array multiply(const array& a, const array& b, StreamOrDevice s = {});
+array operator*(const array& a, const array& b);
+```
+
+### divide
+
+Element-wise division.
+
+```cpp
+array divide(const array& a, const array& b, StreamOrDevice s = {});
+array operator/(const array& a, const array& b);
+```
+
+### power
+
+Element-wise power.
+
+```cpp
+array power(const array& a, const array& b, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = array({1.0f, 2.0f, 3.0f});
+auto b = power(a, array(2.0f));  // [1.0, 4.0, 9.0]
+auto c = power(array(2.0f), a);  // [2.0, 4.0, 8.0]
+```
+
+### negative
+
+Element-wise negation.
+
+```cpp
+array negative(const array& a, StreamOrDevice s = {});
+array operator-(const array& a);
+```
+
+## Comparison
+
+### equal / not_equal
+
+```cpp
+array equal(const array& a, const array& b, StreamOrDevice s = {});
+array not_equal(const array& a, const array& b, StreamOrDevice s = {});
+array operator==(const array& a, const array& b);
+array operator!=(const array& a, const array& b);
+```
+
+### greater / less
+
+```cpp
+array greater(const array& a, const array& b, StreamOrDevice s = {});
+array greater_equal(const array& a, const array& b, StreamOrDevice s = {});
+array less(const array& a, const array& b, StreamOrDevice s = {});
+array less_equal(const array& a, const array& b, StreamOrDevice s = {});
+```
+
+### where
+
+Select elements based on condition.
+
+```cpp
+array where(const array& condition, const array& x, const array& y, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = array({1, 2, 3, 4, 5});
+auto cond = greater(a, array(3));
+auto b = where(cond, a, zeros_like(a));  // [0, 0, 0, 4, 5]
+```
+
+## Reductions
+
+### sum
+
+Sum of elements.
+
+```cpp
+array sum(const array& a, StreamOrDevice s = {});
+array sum(const array& a, std::vector<int> axes, bool keepdims = false, StreamOrDevice s = {});
+array sum(const array& a, int axis, bool keepdims = false, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = arange(12).reshape({3, 4});
+auto total = sum(a);           // Scalar sum
+auto row_sum = sum(a, 1);      // Sum along axis 1: shape {3}
+auto col_sum = sum(a, 0);      // Sum along axis 0: shape {4}
+auto keep = sum(a, 1, true);   // Keep dims: shape {3, 1}
+```
+
+### prod
+
+Product of elements.
+
+```cpp
+array prod(const array& a, StreamOrDevice s = {});
+array prod(const array& a, std::vector<int> axes, bool keepdims = false, StreamOrDevice s = {});
+```
+
+### mean
+
+Mean of elements.
+
+```cpp
+array mean(const array& a, StreamOrDevice s = {});
+array mean(const array& a, std::vector<int> axes, bool keepdims = false, StreamOrDevice s = {});
+```
+
+### var / std
+
+Variance and standard deviation.
+
+```cpp
+array var(const array& a, std::vector<int> axes = {}, bool keepdims = false, int ddof = 0, StreamOrDevice s = {});
+array std(const array& a, std::vector<int> axes = {}, bool keepdims = false, int ddof = 0, StreamOrDevice s = {});
+```
+
+### min / max
+
+Minimum and maximum.
+
+```cpp
+array min(const array& a, StreamOrDevice s = {});
+array min(const array& a, std::vector<int> axes, bool keepdims = false, StreamOrDevice s = {});
+array max(const array& a, StreamOrDevice s = {});
+array max(const array& a, std::vector<int> axes, bool keepdims = false, StreamOrDevice s = {});
+```
+
+### argmin / argmax
+
+Indices of minimum and maximum.
+
+```cpp
+array argmin(const array& a, int axis, bool keepdims = false, StreamOrDevice s = {});
+array argmax(const array& a, int axis, bool keepdims = false, StreamOrDevice s = {});
+```
+
+## Mathematical Functions
+
+### abs
+
+Absolute value.
+
+```cpp
+array abs(const array& a, StreamOrDevice s = {});
+```
+
+### sqrt / rsqrt
+
+Square root and reciprocal square root.
+
+```cpp
+array sqrt(const array& a, StreamOrDevice s = {});
+array rsqrt(const array& a, StreamOrDevice s = {});  // 1 / sqrt(x)
+```
+
+### square / cube
+
+```cpp
+array square(const array& a, StreamOrDevice s = {});
+```
+
+### exp / log
+
+Exponential and logarithm.
+
+```cpp
+array exp(const array& a, StreamOrDevice s = {});
+array log(const array& a, StreamOrDevice s = {});
+array log2(const array& a, StreamOrDevice s = {});
+array log10(const array& a, StreamOrDevice s = {});
+array log1p(const array& a, StreamOrDevice s = {});  // log(1 + x)
+```
+
+### Trigonometric
+
+```cpp
+array sin(const array& a, StreamOrDevice s = {});
+array cos(const array& a, StreamOrDevice s = {});
+array tan(const array& a, StreamOrDevice s = {});
+array arcsin(const array& a, StreamOrDevice s = {});
+array arccos(const array& a, StreamOrDevice s = {});
+array arctan(const array& a, StreamOrDevice s = {});
+array arctan2(const array& a, const array& b, StreamOrDevice s = {});
+```
+
+### Hyperbolic
+
+```cpp
+array sinh(const array& a, StreamOrDevice s = {});
+array cosh(const array& a, StreamOrDevice s = {});
+array tanh(const array& a, StreamOrDevice s = {});
+array arcsinh(const array& a, StreamOrDevice s = {});
+array arccosh(const array& a, StreamOrDevice s = {});
+array arctanh(const array& a, StreamOrDevice s = {});
+```
+
+## Logical
+
+### logical_and / logical_or / logical_not
+
+```cpp
+array logical_and(const array& a, const array& b, StreamOrDevice s = {});
+array logical_or(const array& a, const array& b, StreamOrDevice s = {});
+array logical_not(const array& a, StreamOrDevice s = {});
+```
+
+### all / any
+
+```cpp
+array all(const array& a, StreamOrDevice s = {});
+array all(const array& a, std::vector<int> axes, bool keepdims = false, StreamOrDevice s = {});
+array any(const array& a, StreamOrDevice s = {});
+array any(const array& a, std::vector<int> axes, bool keepdims = false, StreamOrDevice s = {});
+```
+
+## Clipping and Rounding
+
+### clip
+
+Clip values to a range.
+
+```cpp
+array clip(const array& a, const std::optional<array>& a_min, const std::optional<array>& a_max, StreamOrDevice s = {});
+```
+
+### floor / ceil / round
+
+```cpp
+array floor(const array& a, StreamOrDevice s = {});
+array ceil(const array& a, StreamOrDevice s = {});
+array round(const array& a, int decimals = 0, StreamOrDevice s = {});
+```
+
+## Broadcasting Rules
+
+Operations automatically broadcast arrays:
+
+```cpp
+auto a = ones({3, 1});    // Shape: {3, 1}
+auto b = ones({1, 4});    // Shape: {1, 4}
+auto c = add(a, b);       // Shape: {3, 4}
+
+auto d = ones({3, 4});
+auto e = ones({4});       // Broadcasts to {1, 4} then {3, 4}
+auto f = add(d, e);       // Shape: {3, 4}
+```
+
+Broadcasting rules:
+1. Dimensions are compared from right to left
+2. Dimensions must be equal or one of them must be 1
+3. Size-1 dimensions are broadcast to match the other

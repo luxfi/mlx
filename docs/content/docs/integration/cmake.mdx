@@ -1,0 +1,282 @@
+---
+title: CMake Integration
+description: Integrating lux-gpu into your CMake project
+---
+
+# CMake Integration
+
+lux-gpu uses CMake as its build system and can be easily integrated into other CMake projects.
+
+## Quick Start
+
+### FetchContent (Recommended)
+
+The easiest way to use lux-gpu in your project:
+
+```cmake
+cmake_minimum_required(VERSION 3.25)
+project(my_project LANGUAGES C CXX)
+
+include(FetchContent)
+
+FetchContent_Declare(
+    lux_gpu
+    GIT_REPOSITORY https://github.com/luxfi/gpu.git
+    GIT_TAG main
+)
+
+FetchContent_MakeAvailable(lux_gpu)
+
+add_executable(my_app main.cpp)
+target_link_libraries(my_app PRIVATE mlx)
+```
+
+### Installed Library
+
+If lux-gpu is installed on your system:
+
+```cmake
+find_package(mlx REQUIRED)
+
+add_executable(my_app main.cpp)
+target_link_libraries(my_app PRIVATE mlx::mlx)
+```
+
+## Build Options
+
+Configure lux-gpu with these CMake options:
+
+### Core Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `MLX_BUILD_METAL` | ON (macOS) | Build Metal backend |
+| `MLX_BUILD_CPU` | ON | Build CPU backend |
+| `MLX_BUILD_CUDA` | OFF | Build CUDA backend |
+| `BUILD_SHARED_LIBS` | OFF | Build as shared library |
+
+### Feature Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `MLX_BUILD_TESTS` | ON | Build unit tests |
+| `MLX_BUILD_EXAMPLES` | ON | Build example programs |
+| `MLX_BUILD_BENCHMARKS` | OFF | Build benchmarks |
+| `MLX_BUILD_PYTHON_BINDINGS` | OFF | Build Python bindings |
+| `MLX_BUILD_GGUF` | ON | GGUF model format support |
+| `MLX_BUILD_SAFETENSORS` | ON | Safetensors format support |
+
+### Performance Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `MLX_METAL_JIT` | OFF | JIT compile Metal kernels |
+| `MLX_METAL_DEBUG` | OFF | Enable Metal debugging |
+| `MLX_USE_CCACHE` | ON | Use ccache if available |
+
+### Sanitizer Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `USE_ASAN` | OFF | AddressSanitizer |
+| `USE_UBSAN` | OFF | UndefinedBehaviorSanitizer |
+| `USE_TSAN` | OFF | ThreadSanitizer (not macOS) |
+
+## Configuration Examples
+
+### Release Build with Metal
+
+```bash
+cmake -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DMLX_BUILD_METAL=ON \
+    -DMLX_BUILD_TESTS=OFF \
+    ..
+```
+
+### CUDA Build
+
+```bash
+cmake -B build \
+    -DMLX_BUILD_CUDA=ON \
+    -DCMAKE_CUDA_ARCHITECTURES="80;86;89;90" \
+    ..
+```
+
+### Shared Library
+
+```bash
+cmake -B build \
+    -DBUILD_SHARED_LIBS=ON \
+    -DCMAKE_INSTALL_PREFIX=/usr/local \
+    ..
+
+cmake --build build
+cmake --install build
+```
+
+### Debug with Sanitizers
+
+```bash
+cmake -B build \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DUSE_ASAN=ON \
+    -DUSE_UBSAN=ON \
+    ..
+```
+
+## Subdirectory Usage
+
+For projects that include lux-gpu as a subdirectory:
+
+```cmake
+# Disable features you don't need
+set(MLX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(MLX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(MLX_BUILD_BENCHMARKS OFF CACHE BOOL "" FORCE)
+
+add_subdirectory(external/lux-gpu)
+```
+
+## Using with FetchContent
+
+### Specific Version
+
+```cmake
+FetchContent_Declare(
+    lux_gpu
+    GIT_REPOSITORY https://github.com/luxfi/gpu.git
+    GIT_TAG v0.22.0  # Specific version
+)
+```
+
+### With Options
+
+```cmake
+# Set options before FetchContent
+set(MLX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(MLX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    lux_gpu
+    GIT_REPOSITORY https://github.com/luxfi/gpu.git
+    GIT_TAG main
+)
+
+FetchContent_MakeAvailable(lux_gpu)
+```
+
+## Exported Targets
+
+After installation, these targets are available:
+
+| Target | Description |
+|--------|-------------|
+| `mlx::mlx` | Main library target |
+| `mlx::metal` | Metal backend (if built) |
+| `mlx::cuda` | CUDA backend (if built) |
+
+## Example Project
+
+Complete CMakeLists.txt for a project using lux-gpu:
+
+```cmake
+cmake_minimum_required(VERSION 3.25)
+project(gpu_compute LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Fetch lux-gpu
+include(FetchContent)
+set(MLX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(MLX_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+    lux_gpu
+    GIT_REPOSITORY https://github.com/luxfi/gpu.git
+    GIT_TAG main
+)
+FetchContent_MakeAvailable(lux_gpu)
+
+# Your application
+add_executable(gpu_compute
+    src/main.cpp
+    src/model.cpp
+    src/data.cpp
+)
+
+target_link_libraries(gpu_compute PRIVATE mlx)
+
+# Optional: Install
+install(TARGETS gpu_compute RUNTIME DESTINATION bin)
+```
+
+## Platform-Specific Notes
+
+### macOS
+
+Metal backend is enabled by default on Apple Silicon:
+
+```cmake
+# Ensure we're on ARM64
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "arm64")
+    set(MLX_BUILD_METAL ON CACHE BOOL "" FORCE)
+endif()
+```
+
+### Linux
+
+```cmake
+# Enable CUDA on Linux if available
+find_package(CUDAToolkit QUIET)
+if(CUDAToolkit_FOUND)
+    set(MLX_BUILD_CUDA ON CACHE BOOL "" FORCE)
+endif()
+```
+
+### Cross-Compilation
+
+For iOS or other embedded targets:
+
+```cmake
+set(CMAKE_SYSTEM_NAME iOS)
+set(CMAKE_OSX_DEPLOYMENT_TARGET 16.0)
+set(MLX_BUILD_METAL ON)
+set(MLX_BUILD_CPU ON)
+```
+
+## Troubleshooting
+
+### CMake Version
+
+lux-gpu requires CMake 3.25+:
+
+```bash
+# Install latest CMake
+pip install cmake --upgrade
+
+# Or on macOS
+brew install cmake
+```
+
+### Metal Not Found
+
+```cmake
+# Check for Metal framework
+find_library(METAL_LIBRARY Metal)
+if(NOT METAL_LIBRARY)
+    message(WARNING "Metal framework not found")
+    set(MLX_BUILD_METAL OFF)
+endif()
+```
+
+### CUDA Toolkit
+
+```cmake
+# Ensure CUDA is found
+find_package(CUDAToolkit REQUIRED)
+if(NOT CUDAToolkit_FOUND)
+    message(FATAL_ERROR "CUDA Toolkit required for CUDA backend")
+endif()
+```

@@ -1,0 +1,297 @@
+---
+title: Array Creation
+description: Functions for creating and initializing arrays
+---
+
+# Array Creation
+
+Functions for creating arrays with various initialization patterns.
+
+## Zeros and Ones
+
+### zeros
+
+Create an array filled with zeros.
+
+```cpp
+array zeros(const Shape& shape, Dtype dtype = float32, StreamOrDevice s = {});
+array zeros_like(const array& a, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = zeros({3, 4});           // 3x4 float32 zeros
+auto b = zeros({2, 3}, float16);  // 2x3 float16 zeros
+auto c = zeros_like(a);           // Same shape/dtype as a
+```
+
+### ones
+
+Create an array filled with ones.
+
+```cpp
+array ones(const Shape& shape, Dtype dtype = float32, StreamOrDevice s = {});
+array ones_like(const array& a, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = ones({3, 4});            // 3x4 float32 ones
+auto b = ones({2, 3}, int32);     // 2x3 int32 ones
+```
+
+## Filled Arrays
+
+### full
+
+Create an array filled with a constant value.
+
+```cpp
+array full(Shape shape, array vals, Dtype dtype, StreamOrDevice s = {});
+array full(Shape shape, array vals, StreamOrDevice s = {});
+
+// Template version
+template<typename T>
+array full(Shape shape, T val, Dtype dtype, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = full({3, 4}, 3.14f);           // Fill with pi
+auto b = full({2, 2}, 42, int32);       // Fill with 42 (int32)
+auto c = full({5}, array(1.5f), float64); // Explicit array value
+```
+
+### full_like
+
+Create an array with the same shape as another, filled with a value.
+
+```cpp
+array full_like(const array& a, array vals, Dtype dtype, StreamOrDevice s = {});
+array full_like(const array& a, array vals, StreamOrDevice s = {});
+```
+
+## Ranges
+
+### arange
+
+Create a 1D array with evenly spaced values.
+
+```cpp
+array arange(double start, double stop, double step, Dtype dtype, StreamOrDevice s = {});
+array arange(double start, double stop, double step, StreamOrDevice s = {});
+array arange(double start, double stop, StreamOrDevice s = {});
+array arange(double stop, StreamOrDevice s = {});
+
+// Integer overloads
+array arange(int start, int stop, int step, StreamOrDevice s = {});
+array arange(int start, int stop, StreamOrDevice s = {});
+array arange(int stop, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = arange(10);              // [0, 1, 2, ..., 9]
+auto b = arange(0, 10, 2);        // [0, 2, 4, 6, 8]
+auto c = arange(0.0, 1.0, 0.1);   // [0.0, 0.1, 0.2, ..., 0.9]
+```
+
+### linspace
+
+Create a 1D array with evenly spaced values over an interval.
+
+```cpp
+array linspace(
+    double start,
+    double stop,
+    int num = 50,
+    Dtype dtype = float32,
+    StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = linspace(0, 1, 11);      // [0.0, 0.1, 0.2, ..., 1.0]
+auto b = linspace(-1, 1, 5);      // [-1.0, -0.5, 0.0, 0.5, 1.0]
+```
+
+## Identity Matrices
+
+### identity
+
+Create a square identity matrix.
+
+```cpp
+array identity(int n, Dtype dtype = float32, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto I = identity(4);             // 4x4 identity matrix
+auto I_int = identity(3, int32);  // 3x3 integer identity
+```
+
+### eye
+
+Create a matrix with ones on a diagonal.
+
+```cpp
+array eye(int n, int m, int k, Dtype dtype, StreamOrDevice s = {});
+array eye(int n, Dtype dtype, StreamOrDevice s = {});
+array eye(int n, int m, StreamOrDevice s = {});
+array eye(int n, int m, int k, StreamOrDevice s = {});
+array eye(int n, StreamOrDevice s = {});
+```
+
+**Parameters:**
+
+- `n` - Number of rows
+- `m` - Number of columns (default: n)
+- `k` - Diagonal offset (0 = main, positive = upper, negative = lower)
+
+**Examples:**
+
+```cpp
+auto a = eye(4);                  // 4x4 identity
+auto b = eye(3, 5);               // 3x5, main diagonal
+auto c = eye(3, 5, 1);            // 3x5, upper diagonal
+auto d = eye(3, 5, -1);           // 3x5, lower diagonal
+```
+
+### tri
+
+Create a triangular matrix.
+
+```cpp
+array tri(int n, int m, int k, Dtype dtype, StreamOrDevice s = {});
+array tri(int n, Dtype dtype, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto L = tri(4, 4, 0, float32);   // Lower triangular
+auto U = triu(ones({4, 4}));      // Upper triangular from ones
+```
+
+### tril / triu
+
+Extract lower/upper triangular part of a matrix.
+
+```cpp
+array tril(array x, int k = 0, StreamOrDevice s = {});
+array triu(array x, int k = 0, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = arange(16).reshape({4, 4});
+auto L = tril(a);       // Lower triangular
+auto U = triu(a);       // Upper triangular
+auto L1 = tril(a, 1);   // Include first superdiagonal
+auto U1 = triu(a, -1);  // Include first subdiagonal
+```
+
+## Random Arrays
+
+### random::uniform
+
+Uniformly distributed random values.
+
+```cpp
+array random::uniform(
+    array low,
+    array high,
+    const Shape& shape,
+    Dtype dtype = float32,
+    const std::optional<array>& key = std::nullopt,
+    StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = random::uniform(0.0f, 1.0f, {1000, 1000});
+auto b = random::uniform(-1.0f, 1.0f, {3, 4}, float16);
+```
+
+### random::normal
+
+Normally distributed random values.
+
+```cpp
+array random::normal(
+    const Shape& shape,
+    Dtype dtype = float32,
+    const std::optional<array>& key = std::nullopt,
+    StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = random::normal({1000, 1000});         // Standard normal
+auto b = multiply(random::normal({100}), 2.0f); // Scale by 2
+```
+
+### random::randint
+
+Random integers in a range.
+
+```cpp
+array random::randint(
+    array low,
+    array high,
+    const Shape& shape,
+    Dtype dtype = int32,
+    const std::optional<array>& key = std::nullopt,
+    StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = random::randint(0, 10, {100});  // [0, 10) integers
+auto b = random::randint(0, 256, {100}, uint8);  // Bytes
+```
+
+## Copying
+
+### copy
+
+Create an independent copy of an array.
+
+```cpp
+array copy(array a, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = arange(10);
+auto b = a;        // Shares memory with a
+auto c = copy(a);  // Independent copy
+```
+
+### astype
+
+Create a copy with a different data type.
+
+```cpp
+array astype(array a, Dtype dtype, StreamOrDevice s = {});
+```
+
+**Examples:**
+
+```cpp
+auto a = array({1, 2, 3}, int32);
+auto b = astype(a, float32);  // [1.0, 2.0, 3.0]
+auto c = astype(a, float16);  // Half precision
+```

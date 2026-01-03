@@ -1,0 +1,287 @@
+---
+title: Streams
+description: Asynchronous execution and stream management
+---
+
+# Streams
+
+Streams are ordered execution queues that enable asynchronous computation. Operations submitted to a stream execute in order relative to each other, but can run concurrently with operations on other streams.
+
+## Basic Concepts
+
+### What is a Stream?
+
+A stream represents a sequence of operations that execute in order on a specific device. Think of it like a command queue:
+
+```cpp
+#include <mlx/stream.h>
+
+using namespace mlx::core;
+
+// Get default stream for GPU
+auto s = default_stream(Device::gpu);
+
+// Create a new stream
+auto s2 = new_stream(Device::gpu);
+```
+
+### Stream and Device
+
+Each stream is associated with a specific device:
+
+```cpp
+auto gpu_stream = new_stream(Device::gpu);
+auto cpu_stream = new_stream(Device::cpu);
+
+// Operations use the stream's device
+auto a = zeros({1000, 1000}, float32, gpu_stream);  // GPU
+auto b = zeros({1000, 1000}, float32, cpu_stream);  // CPU
+```
+
+## Using Streams
+
+### Default Stream
+
+Most operations use the default stream implicitly:
+
+```cpp
+// These use default GPU stream
+auto a = zeros({1000, 1000});
+auto b = ones({1000, 1000});
+auto c = add(a, b);  // Queued on default stream
+```
+
+### Explicit Stream
+
+Pass a stream to control where operations execute:
+
+```cpp
+auto s = new_stream(Device::gpu);
+
+// All operations on stream s
+auto a = zeros({1000, 1000}, float32, s);
+auto b = ones({1000, 1000}, float32, s);
+auto c = matmul(a, b, s);
+
+// Wait for stream to complete
+synchronize(s);
+```
+
+### StreamOrDevice
+
+Most operations accept `StreamOrDevice`, which can be:
+
+```cpp
+void process(StreamOrDevice sod = {}) {
+    auto a = zeros({100, 100}, float32, sod);
+    // ...
+}
+
+// Use default
+process();
+
+// Use specific device
+process(Device::cpu);
+
+// Use specific stream
+process(my_stream);
+```
+
+## Synchronization
+
+### synchronize()
+
+Wait for all operations on a stream to complete:
+
+```cpp
+auto s = new_stream(Device::gpu);
+
+// Queue operations
+auto a = randn({1000, 1000}, float32, s);
+auto b = matmul(a, a, s);
+auto c = sum(b, s);
+
+// Wait for completion
+synchronize(s);
+
+// Now safe to access result
+std::cout << c << std::endl;
+```
+
+### Global Synchronization
+
+Wait for all streams on all devices:
+
+```cpp
+// Launch operations on multiple streams
+auto s1 = new_stream(Device::gpu);
+auto s2 = new_stream(Device::gpu);
+
+auto a = matmul(x, y, s1);
+auto b = matmul(y, z, s2);
+
+// Wait for everything
+synchronize();
+```
+
+### eval()
+
+The `eval()` function is the primary way to force evaluation:
+
+```cpp
+auto a = randn({1000, 1000});
+auto b = matmul(a, a);
+auto c = sum(b);
+
+// Evaluate specific arrays
+eval(c);
+
+// Evaluate multiple arrays
+eval({a, b, c});
+```
+
+## Concurrent Execution
+
+### Multiple Streams
+
+Use multiple streams for concurrent execution:
+
+```cpp
+auto s1 = new_stream(Device::gpu);
+auto s2 = new_stream(Device::gpu);
+
+// These can execute concurrently
+auto task1 = [&]() {
+    auto a = randn({1000, 1000}, float32, s1);
+    return matmul(a, a, s1);
+};
+
+auto task2 = [&]() {
+    auto b = randn({500, 500}, float32, s2);
+    return matmul(b, b, s2);
+};
+
+auto result1 = task1();
+auto result2 = task2();
+
+// Wait for both
+synchronize();
+```
+
+### Pipeline Pattern
+
+Process a sequence of inputs concurrently:
+
+```cpp
+std::vector<array> inputs = load_data();
+std::vector<array> outputs;
+
+auto compute_stream = new_stream(Device::gpu);
+auto transfer_stream = new_stream(Device::cpu);
+
+for (const auto& input : inputs) {
+    // Compute on GPU stream
+    auto processed = model_forward(input, compute_stream);
+
+    // Transfer/store on CPU stream
+    outputs.push_back(copy(processed, transfer_stream));
+}
+
+synchronize();
+```
+
+## Best Practices
+
+### 1. Minimize Synchronization
+
+```cpp
+// Inefficient: sync after every operation
+for (const auto& x : data) {
+    auto y = process(x);
+    synchronize();  // Blocks!
+    results.push_back(y);
+}
+
+// Efficient: batch and sync once
+std::vector<array> pending;
+for (const auto& x : data) {
+    pending.push_back(process(x));
+}
+synchronize();  // Single sync at end
+```
+
+### 2. Use eval() for Dependencies
+
+```cpp
+auto a = expensive_compute();
+auto b = another_compute(a);  // Depends on a
+
+// Only need to eval final result
+eval(b);  // Also evaluates a
+```
+
+### 3. Separate I/O and Compute
+
+```cpp
+auto io_stream = new_stream(Device::cpu);
+auto compute_stream = new_stream(Device::gpu);
+
+// Load on CPU stream
+auto data = load_from_disk(io_stream);
+synchronize(io_stream);
+
+// Compute on GPU stream
+auto result = process(data, compute_stream);
+synchronize(compute_stream);
+
+// Save on CPU stream
+save_to_disk(result, io_stream);
+```
+
+### 4. Profile Stream Usage
+
+```cpp
+#include <chrono>
+
+auto start = std::chrono::high_resolution_clock::now();
+
+// Your operations
+auto result = heavy_computation();
+eval(result);
+synchronize();
+
+auto end = std::chrono::high_resolution_clock::now();
+auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+std::cout << "Took " << duration.count() << " ms\n";
+```
+
+## Stream Context
+
+Use RAII for stream management:
+
+```cpp
+class StreamContext {
+    Stream prev_;
+    Stream curr_;
+public:
+    explicit StreamContext(Stream s)
+        : prev_(default_stream(s.device()))
+        , curr_(s) {
+        set_default_stream(curr_);
+    }
+    ~StreamContext() {
+        set_default_stream(prev_);
+    }
+};
+
+// Usage
+{
+    auto s = new_stream(Device::gpu);
+    StreamContext ctx(s);
+
+    // All operations use stream s
+    auto a = zeros({1000, 1000});
+    auto b = matmul(a, a);
+}
+// Default stream restored
+```

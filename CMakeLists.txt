@@ -150,6 +150,29 @@ cmake_policy(SET CMP0135 NEW)
 
 add_library(mlx)
 
+# Lux naming convention: libluxgpu.dylib, exported as lux::gpu
+set_target_properties(mlx PROPERTIES
+  OUTPUT_NAME luxgpu
+  VERSION ${MLX_VERSION}
+  SOVERSION ${MLX_VERSION}
+  EXPORT_NAME gpu
+)
+
+# Relocatable RPATH settings for /usr/local
+if(APPLE)
+  set_target_properties(mlx PROPERTIES
+    MACOSX_RPATH ON
+    INSTALL_NAME_DIR "@rpath"
+    BUILD_WITH_INSTALL_RPATH ON
+    INSTALL_RPATH "@loader_path;@loader_path/../lib;${CMAKE_INSTALL_PREFIX}/lib"
+  )
+else()
+  set_target_properties(mlx PROPERTIES
+    INSTALL_RPATH "$ORIGIN;$ORIGIN/../lib;${CMAKE_INSTALL_PREFIX}/lib"
+    BUILD_WITH_INSTALL_RPATH ON
+  )
+endif()
+
 # Supress warnings: note: parameter passing for argument of type
 # ‘std::pair<float, float>’ when C++17 is enabled changed to match C++14 in GCC
 # 10.1
@@ -316,6 +339,11 @@ target_include_directories(
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/mlx)
 
+# Add Lux NTT C API for lattice crypto
+target_sources(
+  mlx
+  PRIVATE ${CMAKE_CURRENT_LIST_DIR}/mlx_c_api.cpp)
+
 target_include_directories(
   mlx PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_LIST_DIR}>
              $<INSTALL_INTERFACE:include>)
@@ -370,7 +398,7 @@ include(GNUInstallDirs)
 # Install library
 install(
   TARGETS mlx
-  EXPORT MLXTargets
+  EXPORT lux-gpuTargets
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -397,32 +425,33 @@ if(MLX_BUILD_METAL)
 
 endif()
 
-# Install cmake config
-set(MLX_CMAKE_BUILD_CONFIG ${CMAKE_BINARY_DIR}/MLXConfig.cmake)
-set(MLX_CMAKE_BUILD_VERSION_CONFIG ${CMAKE_BINARY_DIR}/MLXConfigVersion.cmake)
-set(MLX_CMAKE_INSTALL_MODULE_DIR share/cmake/MLX)
+# Install cmake config as lux-gpu
+set(GPU_CMAKE_BUILD_CONFIG ${CMAKE_BINARY_DIR}/lux-gpuConfig.cmake)
+set(GPU_CMAKE_BUILD_VERSION_CONFIG ${CMAKE_BINARY_DIR}/lux-gpuConfigVersion.cmake)
+set(GPU_CMAKE_INSTALL_MODULE_DIR share/cmake/lux-gpu)
 
 install(
-  EXPORT MLXTargets
-  FILE MLXTargets.cmake
-  DESTINATION ${MLX_CMAKE_INSTALL_MODULE_DIR})
+  EXPORT lux-gpuTargets
+  FILE lux-gpuTargets.cmake
+  NAMESPACE lux::
+  DESTINATION ${GPU_CMAKE_INSTALL_MODULE_DIR})
 
 include(CMakePackageConfigHelpers)
 
 write_basic_package_version_file(
-  ${MLX_CMAKE_BUILD_VERSION_CONFIG}
+  ${GPU_CMAKE_BUILD_VERSION_CONFIG}
   COMPATIBILITY SameMajorVersion
   VERSION ${MLX_VERSION})
 
 configure_package_config_file(
-  ${CMAKE_CURRENT_LIST_DIR}/mlx.pc.in ${MLX_CMAKE_BUILD_CONFIG}
-  INSTALL_DESTINATION ${MLX_CMAKE_INSTALL_MODULE_DIR}
+  ${CMAKE_CURRENT_LIST_DIR}/lux-gpu.pc.in ${GPU_CMAKE_BUILD_CONFIG}
+  INSTALL_DESTINATION ${GPU_CMAKE_INSTALL_MODULE_DIR}
   NO_CHECK_REQUIRED_COMPONENTS_MACRO
   PATH_VARS CMAKE_INSTALL_LIBDIR CMAKE_INSTALL_INCLUDEDIR
-            MLX_CMAKE_INSTALL_MODULE_DIR)
+            GPU_CMAKE_INSTALL_MODULE_DIR)
 
-install(FILES ${MLX_CMAKE_BUILD_CONFIG} ${MLX_CMAKE_BUILD_VERSION_CONFIG}
-        DESTINATION ${MLX_CMAKE_INSTALL_MODULE_DIR})
+install(FILES ${GPU_CMAKE_BUILD_CONFIG} ${GPU_CMAKE_BUILD_VERSION_CONFIG}
+        DESTINATION ${GPU_CMAKE_INSTALL_MODULE_DIR})
 
 install(DIRECTORY ${CMAKE_MODULE_PATH}/
-        DESTINATION ${MLX_CMAKE_INSTALL_MODULE_DIR})
+        DESTINATION ${GPU_CMAKE_INSTALL_MODULE_DIR})

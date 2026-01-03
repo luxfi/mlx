@@ -124,6 +124,7 @@ if(NOT MLX_METAL_JIT)
   build_kernel(binary_two binary_two.h)
   build_kernel(copy copy.h)
   build_kernel(fft fft.h fft/radix.h fft/readwrite.h)
+  build_kernel(ntt ntt.h)
   build_kernel(
     reduce
     atomic.h

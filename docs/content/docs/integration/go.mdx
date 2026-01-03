@@ -1,0 +1,410 @@
+---
+title: Go Bindings
+description: Using lux-gpu from Go with CGO
+---
+
+# Go Bindings
+
+lux-gpu provides comprehensive Go bindings via CGO, enabling GPU-accelerated computing in Go applications.
+
+## Installation
+
+### Prerequisites
+
+1. Go 1.21 or later
+2. CGO enabled (CGO_ENABLED=1)
+3. lux-gpu built as a shared library
+
+### Build the C Library
+
+```bash
+cd /path/to/lux-gpu
+cmake -B build -DBUILD_SHARED_LIBS=ON
+cmake --build build
+```
+
+### Install Go Package
+
+```bash
+go get github.com/luxfi/gpu
+```
+
+## Quick Start
+
+```go
+package main
+
+import (
+    "fmt"
+    "github.com/luxfi/gpu"
+)
+
+func main() {
+    // Initialize with best available backend
+    if err := mlx.Init(mlx.Auto); err != nil {
+        panic(err)
+    }
+    defer mlx.Cleanup()
+
+    // Print device info
+    device := mlx.DefaultDevice()
+    fmt.Printf("Using %s: %s\n", device.Type, device.Name)
+
+    // Create arrays
+    a := mlx.Ones([]int{3, 3}, mlx.Float32)
+    b := mlx.Ones([]int{3, 3}, mlx.Float32)
+
+    // Matrix multiplication
+    c := mlx.MatMul(a, b)
+
+    // Evaluate and print
+    mlx.Eval(c)
+    fmt.Println(c)
+}
+```
+
+## Backend Selection
+
+### Automatic Detection
+
+```go
+// Auto-detect best backend
+mlx.Init(mlx.Auto)
+```
+
+### Explicit Backend
+
+```go
+// Force specific backend
+mlx.Init(mlx.Metal)  // Apple Silicon
+mlx.Init(mlx.CUDA)   // NVIDIA GPU
+mlx.Init(mlx.CPU)    // CPU only
+```
+
+### Check Availability
+
+```go
+if mlx.IsAvailable(mlx.Metal) {
+    mlx.Init(mlx.Metal)
+} else if mlx.IsAvailable(mlx.CUDA) {
+    mlx.Init(mlx.CUDA)
+} else {
+    mlx.Init(mlx.CPU)
+}
+```
+
+## Array Operations
+
+### Creation
+
+```go
+// Zeros and ones
+zeros := mlx.Zeros([]int{100, 100}, mlx.Float32)
+ones := mlx.Ones([]int{100, 100}, mlx.Float32)
+
+// From data
+data := []float32{1, 2, 3, 4, 5, 6}
+arr := mlx.FromSlice(data, []int{2, 3}, mlx.Float32)
+
+// Random
+normal := mlx.RandomNormal([]int{100, 100}, mlx.Float32)
+uniform := mlx.RandomUniform(0, 1, []int{100, 100}, mlx.Float32)
+
+// Ranges
+range_ := mlx.Arange(0, 100, 1, mlx.Float32)
+linspace := mlx.Linspace(0, 1, 100, mlx.Float32)
+```
+
+### Data Types
+
+```go
+// Supported types
+mlx.Float16
+mlx.Float32
+mlx.Float64
+mlx.Int8
+mlx.Int16
+mlx.Int32
+mlx.Int64
+mlx.Uint8
+mlx.Uint16
+mlx.Uint32
+mlx.Uint64
+mlx.Bool
+mlx.Complex64
+```
+
+### Shape Operations
+
+```go
+arr := mlx.Ones([]int{4, 3, 2}, mlx.Float32)
+
+// Query shape
+shape := arr.Shape()    // []int{4, 3, 2}
+ndim := arr.Ndim()      // 3
+size := arr.Size()      // 24
+
+// Reshape
+reshaped := mlx.Reshape(arr, []int{6, 4})
+flat := mlx.Flatten(arr)
+
+// Transpose
+transposed := mlx.Transpose(arr)
+permuted := mlx.TransposeAxes(arr, []int{2, 0, 1})
+```
+
+### Arithmetic
+
+```go
+a := mlx.Ones([]int{100, 100}, mlx.Float32)
+b := mlx.Ones([]int{100, 100}, mlx.Float32)
+
+// Element-wise
+sum := mlx.Add(a, b)
+diff := mlx.Subtract(a, b)
+prod := mlx.Multiply(a, b)
+quot := mlx.Divide(a, b)
+pow := mlx.Power(a, b)
+
+// Scalar operations
+scaled := mlx.MulScalar(a, 2.0)
+biased := mlx.AddScalar(a, 1.0)
+```
+
+### Reductions
+
+```go
+arr := mlx.RandomNormal([]int{100, 100}, mlx.Float32)
+
+// Full reductions
+total := mlx.Sum(arr)
+mean := mlx.Mean(arr)
+min := mlx.Min(arr)
+max := mlx.Max(arr)
+
+// Axis reductions
+rowSum := mlx.SumAxis(arr, 1, false)     // keepdims=false
+colMean := mlx.MeanAxis(arr, 0, true)    // keepdims=true
+```
+
+### Linear Algebra
+
+```go
+a := mlx.RandomNormal([]int{1000, 1000}, mlx.Float32)
+b := mlx.RandomNormal([]int{1000, 1000}, mlx.Float32)
+
+// Matrix operations
+c := mlx.MatMul(a, b)
+inv := mlx.Inverse(a)
+det := mlx.Det(a)
+
+// Decompositions
+u, s, vh := mlx.SVD(a)
+q, r := mlx.QR(a)
+L := mlx.Cholesky(a)  // For positive definite
+
+// Solving
+x := mlx.Solve(a, b)  // Solve Ax = b
+```
+
+## Memory Management
+
+### Evaluation
+
+```go
+// Lazy evaluation - operations are queued
+a := mlx.RandomNormal([]int{1000, 1000}, mlx.Float32)
+b := mlx.MatMul(a, a)
+c := mlx.Sum(b)  // Nothing computed yet
+
+// Force evaluation
+mlx.Eval(c)  // Now all operations execute
+
+// Evaluate multiple arrays
+mlx.EvalAll(a, b, c)
+```
+
+### Data Transfer
+
+```go
+// Get data to CPU
+arr := mlx.RandomNormal([]int{100}, mlx.Float32)
+mlx.Eval(arr)
+
+// Copy to Go slice
+data := make([]float32, 100)
+arr.CopyTo(data)
+
+// Or get directly
+data = arr.ToSlice().([]float32)
+```
+
+### Cleanup
+
+```go
+func processData() {
+    arr := mlx.RandomNormal([]int{10000, 10000}, mlx.Float32)
+    result := mlx.MatMul(arr, arr)
+    mlx.Eval(result)
+
+    // Explicitly free if needed
+    arr.Free()
+
+    return result  // result still valid
+}
+```
+
+## Streams
+
+### Concurrent Execution
+
+```go
+// Create streams
+stream1 := mlx.NewStream(mlx.GPU)
+stream2 := mlx.NewStream(mlx.GPU)
+defer stream1.Close()
+defer stream2.Close()
+
+// Operations on different streams can overlap
+a := mlx.RandomNormal([]int{1000, 1000}, mlx.Float32, stream1)
+b := mlx.RandomNormal([]int{1000, 1000}, mlx.Float32, stream2)
+
+c := mlx.MatMul(a, a, stream1)  // On stream1
+d := mlx.MatMul(b, b, stream2)  // On stream2 (concurrent)
+
+// Synchronize
+mlx.SyncAll()
+```
+
+## Performance Tips
+
+### 1. Batch Operations
+
+```go
+// Bad: many small operations
+for i := 0; i < 1000; i++ {
+    result := mlx.MatMul(inputs[i], weights)
+    mlx.Eval(result)  // Sync each time!
+}
+
+// Good: batch then sync
+var results []*mlx.Array
+for i := 0; i < 1000; i++ {
+    results = append(results, mlx.MatMul(inputs[i], weights))
+}
+mlx.EvalAll(results...)  // Single sync
+```
+
+### 2. Avoid Unnecessary Copies
+
+```go
+// Reuse arrays when possible
+buffer := mlx.Zeros([]int{1000, 1000}, mlx.Float32)
+
+for i := 0; i < 100; i++ {
+    mlx.MatMulInto(buffer, a, b)  // Write to existing
+    process(buffer)
+}
+```
+
+### 3. Use Appropriate Dtypes
+
+```go
+// Float16 is faster on GPU
+a := mlx.Astype(data, mlx.Float16)
+result := mlx.MatMul(a, a)  // Faster!
+
+// Convert back if needed
+output := mlx.Astype(result, mlx.Float32)
+```
+
+## Build Tags
+
+Control backend compilation:
+
+```bash
+# Default (Metal on macOS, CPU on Linux)
+go build
+
+# Force CUDA backend
+go build -tags cuda
+
+# CPU only (no GPU)
+go build -tags nocgo
+
+# Specific backend
+CGO_ENABLED=1 go build -tags metal
+```
+
+## Example: Neural Network Layer
+
+```go
+package main
+
+import (
+    "github.com/luxfi/gpu"
+)
+
+type Linear struct {
+    weights *mlx.Array
+    bias    *mlx.Array
+}
+
+func NewLinear(inFeatures, outFeatures int) *Linear {
+    // Xavier initialization
+    scale := 1.0 / float64(inFeatures)
+    weights := mlx.RandomNormal([]int{inFeatures, outFeatures}, mlx.Float32)
+    weights = mlx.MulScalar(weights, scale)
+
+    bias := mlx.Zeros([]int{outFeatures}, mlx.Float32)
+
+    return &Linear{weights: weights, bias: bias}
+}
+
+func (l *Linear) Forward(x *mlx.Array) *mlx.Array {
+    // y = x @ W + b
+    out := mlx.MatMul(x, l.weights)
+    out = mlx.Add(out, l.bias)
+    return out
+}
+
+func main() {
+    mlx.Init(mlx.Auto)
+    defer mlx.Cleanup()
+
+    layer := NewLinear(784, 256)
+
+    // Forward pass
+    x := mlx.RandomNormal([]int{32, 784}, mlx.Float32)
+    y := layer.Forward(x)
+
+    mlx.Eval(y)
+    fmt.Printf("Output shape: %v\n", y.Shape())
+}
+```
+
+## Troubleshooting
+
+### CGO Not Enabled
+
+```bash
+CGO_ENABLED=1 go build
+```
+
+### Library Not Found
+
+```bash
+# Set library path
+export LD_LIBRARY_PATH=/path/to/lux-gpu/lib:$LD_LIBRARY_PATH
+
+# Or on macOS
+export DYLD_LIBRARY_PATH=/path/to/lux-gpu/lib:$DYLD_LIBRARY_PATH
+```
+
+### Architecture Mismatch
+
+```bash
+# Ensure matching architectures
+file $(which go)  # Check Go binary arch
+file lib/libmlx.dylib  # Check library arch
+```
