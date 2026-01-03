@@ -73,6 +73,11 @@ lux-lattice        ← NTT acceleration
 lux-fhe            ← TFHE/CKKS/BGV
 ```
 
+## Documentation
+
+- [GPU Acceleration Guide](https://luxfi.github.io/crypto/docs/gpu-acceleration)
+- [C++ Libraries Overview](https://luxfi.github.io/crypto/docs/cpp-libraries)
+
 ## License
 
 MIT License - see [LICENSE](LICENSE)
