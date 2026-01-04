@@ -102,3 +102,4 @@ build-local/
 build-lux/
 build-shared/
 \!docs/lib/
+build-test/

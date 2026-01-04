@@ -1,0 +1,27 @@
+# pkg-config file for lux-gpu
+# Lux GPU Library - Cross-platform GPU acceleration
+#
+# Copyright (c) 2024-2025 Lux Industries Inc.
+# SPDX-License-Identifier: BSD-3-Clause-Ecosystem
+#
+# Usage with Go CGO:
+#   #cgo pkg-config: lux-gpu
+#
+# Usage with C/C++:
+#   pkg-config --cflags --libs lux-gpu
+
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: lux-gpu
+Description: Lux GPU Library - Unified GPU acceleration (CUDA/Metal/WebGPU/CPU)
+Version: @MLX_VERSION@
+URL: https://github.com/luxfi/lux
+
+Requires:
+Requires.private: @LUX_GPU_PC_REQUIRES@
+Libs: -L${libdir} -lluxgpu @LUX_GPU_PC_LIBS@
+Libs.private: @LUX_GPU_PC_LIBS_PRIVATE@
+Cflags: -I${includedir} @LUX_GPU_PC_CFLAGS@

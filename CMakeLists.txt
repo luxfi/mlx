@@ -419,6 +419,21 @@ if(MLX_BUILD_BENCHMARKS)
   add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/benchmarks/cpp)
 endif()
 
+# ----------------------------- Compile Definitions -----------------------------
+
+# Add backend compile definitions based on build options
+if(MLX_BUILD_METAL)
+  target_compile_definitions(mlx PUBLIC LUX_HAVE_MLX)
+endif()
+
+if(MLX_BUILD_CUDA)
+  target_compile_definitions(mlx PUBLIC LUX_HAVE_CUDA)
+endif()
+
+if(MLX_BUILD_WEBGPU)
+  target_compile_definitions(mlx PUBLIC LUX_HAVE_WEBGPU)
+endif()
+
 # ----------------------------- Installation -----------------------------
 include(GNUInstallDirs)
 
@@ -432,7 +447,7 @@ install(
   INCLUDES
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-# Install headers
+# Install headers - mlx headers
 install(
   DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/mlx
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
@@ -440,6 +455,14 @@ install(
   FILES_MATCHING
   PATTERN "*.h"
   PATTERN "backend/metal/kernels.h" EXCLUDE)
+
+# Install headers - lux/gpu headers
+install(
+  DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/include/lux
+  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+  COMPONENT headers
+  FILES_MATCHING
+  PATTERN "*.h")
 
 # Install metal dependencies
 if(MLX_BUILD_METAL)
@@ -482,3 +505,40 @@ install(FILES ${GPU_CMAKE_BUILD_CONFIG} ${GPU_CMAKE_BUILD_VERSION_CONFIG}
 
 install(DIRECTORY ${CMAKE_MODULE_PATH}/
         DESTINATION ${GPU_CMAKE_INSTALL_MODULE_DIR})
+
+# ----------------------------- pkg-config -----------------------------
+
+# Build pkg-config variables based on enabled backends
+set(LUX_GPU_PC_CFLAGS "")
+set(LUX_GPU_PC_LIBS "")
+set(LUX_GPU_PC_LIBS_PRIVATE "")
+set(LUX_GPU_PC_REQUIRES "")
+
+if(MLX_BUILD_METAL)
+  string(APPEND LUX_GPU_PC_CFLAGS " -DLUX_HAVE_MLX")
+  string(APPEND LUX_GPU_PC_LIBS " -framework Metal -framework Foundation -framework QuartzCore")
+endif()
+
+if(MLX_BUILD_CUDA)
+  string(APPEND LUX_GPU_PC_CFLAGS " -DLUX_HAVE_CUDA")
+  string(APPEND LUX_GPU_PC_LIBS_PRIVATE " -lcudart")
+endif()
+
+if(MLX_BUILD_WEBGPU)
+  string(APPEND LUX_GPU_PC_CFLAGS " -DLUX_HAVE_WEBGPU")
+endif()
+
+if(MLX_BUILD_ACCELERATE)
+  string(APPEND LUX_GPU_PC_CFLAGS " -DACCELERATE_NEW_LAPACK")
+  string(APPEND LUX_GPU_PC_LIBS " -framework Accelerate")
+endif()
+
+# Generate pkg-config file
+configure_file(
+  ${CMAKE_CURRENT_LIST_DIR}/cmake/lux-gpu.pc.in
+  ${CMAKE_BINARY_DIR}/lux-gpu.pc
+  @ONLY)
+
+# Install pkg-config file
+install(FILES ${CMAKE_BINARY_DIR}/lux-gpu.pc
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
