@@ -85,11 +85,33 @@ if(LUX_GPU_BUILD_ALL_BACKENDS)
 endif()
 
 # =============================================================================
-# Third-party paths
+# Third-party Dependencies
 # =============================================================================
+#
+# Dependencies by backend:
+#   Metal  → MLX (Apple's ML framework with optimized Metal kernels)
+#   CUDA   → CCCL (NVIDIA CUDA C++ Core Libraries: thrust, cub, libcudacxx)
+#   WebGPU → gpu.cpp (Lightweight WebGPU library for cross-platform compute)
+#
 
 set(MLX_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/mlx)
 set(GPUCPP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/gpu.cpp)
+set(CCCL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/cccl)
+
+# =============================================================================
+# gpu.cpp Integration (WebGPU Backend)
+# =============================================================================
+# gpu.cpp is a lightweight C++ library for portable GPU compute using WebGPU
+# https://github.com/AnswerDotAI/gpu.cpp
+
+if(EXISTS ${GPUCPP_DIR})
+    message(STATUS "Using gpu.cpp from: ${GPUCPP_DIR}")
+    add_library(gpucpp INTERFACE)
+    target_include_directories(gpucpp INTERFACE ${GPUCPP_DIR})
+else()
+    message(STATUS "gpu.cpp not found at ${GPUCPP_DIR}")
+    add_library(gpucpp INTERFACE)
+endif()
 
 # =============================================================================
 # Private Kernel Source Paths
@@ -299,10 +321,8 @@ if(LUX_GPU_BUILD_WEBGPU)
         LUX_GPU_BUILD_WEBGPU
     )
 
-    # gpu.cpp headers
-    if(EXISTS ${GPUCPP_DIR})
-        target_include_directories(luxgpu_backend_webgpu PRIVATE ${GPUCPP_DIR})
-    endif()
+    # gpu.cpp integration for WebGPU compute
+    target_link_libraries(luxgpu_backend_webgpu PRIVATE gpucpp)
 
     # Link Dawn or wgpu-native
     find_package(Dawn QUIET)
