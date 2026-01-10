@@ -1,0 +1,32 @@
+# Build directories
+build/
+build-*/
+cmake-build-*/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Compiled objects
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+
+# Executables
+benchmark
+test_*
+!test/*.cpp
+
+# Generated files
+generated/
+
+# OS files
+.DS_Store
+Thumbs.db
