@@ -1,14 +1,6 @@
-# Build and Release GPU Backends
-#
-# Architecture:
-#   luxcpp/gpu    - Core library (ABI + loader + CPU)
-#   luxcpp/metal  - Metal backend (macOS arm64)
-#   luxcpp/cuda   - CUDA backend (Linux/Windows x86_64/arm64)
-#   luxcpp/webgpu - WebGPU backend (cross-platform)
-#
-# Each backend is built independently with its own dependencies.
-
-name: Build GPU Backends
+# Core Library Build
+# Backend plugins have their own workflows in their respective repos
+name: Build Core Library
 
 on:
   push:
@@ -16,22 +8,11 @@ on:
     tags: ['v*']
   pull_request:
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      release:
-        description: 'Create release'
-        required: false
-        default: 'false'
-        type: boolean
 
 env:
   CMAKE_BUILD_TYPE: Release
-  LUX_GPU_VERSION: 0.2.0
 
 jobs:
-  # ===========================================================================
-  # Core Library (all platforms)
-  # ===========================================================================
   build-core:
     strategy:
       matrix:
@@ -39,9 +20,6 @@ jobs:
           - os: ubuntu-22.04
             arch: x86_64
             artifact: linux-x86_64
-          - os: ubuntu-22.04-arm64
-            arch: arm64
-            artifact: linux-arm64
           - os: macos-14
             arch: arm64
             artifact: macos-arm64
@@ -70,7 +48,7 @@ jobs:
       - name: Package
         run: |
           mkdir -p dist
-          cp build/libluxgpu_core* dist/ || cp build/Release/luxgpu_core* dist/
+          cp build/libluxgpu_core* dist/ 2>/dev/null || cp build/Release/luxgpu_core* dist/ 2>/dev/null || true
           cp -r include dist/
           tar -czvf luxgpu-core-${{ matrix.artifact }}.tar.gz -C dist .
         shell: bash
@@ -80,220 +58,10 @@ jobs:
           name: luxgpu-core-${{ matrix.artifact }}
           path: luxgpu-core-${{ matrix.artifact }}.tar.gz
 
-  # ===========================================================================
-  # CUDA Backend (Linux x86_64/arm64, Windows x86_64)
-  # ===========================================================================
-  build-cuda:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            arch: x86_64
-            cuda_arch: "70;75;80;86;89;90"
-            container: nvidia/cuda:12.4.0-devel-ubuntu22.04
-          - os: ubuntu-22.04
-            arch: arm64
-            cuda_arch: "72;87"
-            container: nvidia/cuda:12.4.0-devel-ubuntu22.04
-          - os: windows-2022
-            arch: x86_64
-            cuda_arch: "70;75;80;86;89;90"
-            container: null
-    runs-on: ${{ matrix.os }}
-    container: ${{ matrix.container }}
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: luxcpp/cuda
-          token: ${{ secrets.LUXCPP_TOKEN }}
-
-      - name: Checkout core headers
-        uses: actions/checkout@v4
-        with:
-          repository: luxcpp/gpu
-          path: gpu-core
-          sparse-checkout: include
-
-      - name: Install CUDA (Windows)
-        if: runner.os == 'Windows'
-        uses: Jimver/cuda-toolkit@v0.2.19
-        with:
-          cuda: '12.4.0'
-          method: 'network'
-
-      - name: Install dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: apt-get update && apt-get install -y cmake ninja-build
-
-      - name: Configure
-        run: |
-          cmake -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_CUDA_ARCHITECTURES="${{ matrix.cuda_arch }}" \
-            -DLUX_GPU_INCLUDE_DIR=${{ github.workspace }}/gpu-core/include
-
-      - name: Build
-        run: cmake --build build --target luxgpu_backend_cuda
-
-      - name: Package
-        run: |
-          mkdir -p dist
-          cp build/libluxgpu_backend_cuda* dist/ || cp build/Release/luxgpu_backend_cuda* dist/
-          tar -czvf luxgpu-backend-cuda-${{ matrix.os == 'windows-2022' && 'windows' || 'linux' }}-${{ matrix.arch }}.tar.gz -C dist .
-        shell: bash
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: luxgpu-backend-cuda-${{ matrix.os == 'windows-2022' && 'windows' || 'linux' }}-${{ matrix.arch }}
-          path: luxgpu-backend-cuda-*.tar.gz
-
-  # ===========================================================================
-  # Metal Backend (macOS arm64 only)
-  # ===========================================================================
-  build-metal:
-    runs-on: macos-14
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: luxcpp/metal
-          token: ${{ secrets.LUXCPP_TOKEN }}
-
-      - name: Checkout core headers
-        uses: actions/checkout@v4
-        with:
-          repository: luxcpp/gpu
-          path: gpu-core
-          sparse-checkout: include
-
-      - name: Checkout MLX
-        uses: actions/checkout@v4
-        with:
-          repository: luxcpp/mlx
-          path: third_party/mlx
-          token: ${{ secrets.LUXCPP_TOKEN }}
-
-      - name: Install dependencies
-        run: brew install cmake ninja
-
-      - name: Configure
-        run: |
-          cmake -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DLUX_GPU_INCLUDE_DIR=${{ github.workspace }}/gpu-core/include \
-            -DMLX_DIR=${{ github.workspace }}/third_party/mlx
-
-      - name: Build
-        run: cmake --build build --target luxgpu_backend_metal
-
-      - name: Package
-        run: |
-          mkdir -p dist
-          cp build/libluxgpu_backend_metal.dylib dist/
-          tar -czvf luxgpu-backend-metal-macos-arm64.tar.gz -C dist .
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: luxgpu-backend-metal-macos-arm64
-          path: luxgpu-backend-metal-macos-arm64.tar.gz
-
-  # ===========================================================================
-  # WebGPU Backend (all platforms)
-  # ===========================================================================
-  build-webgpu:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            arch: x86_64
-            wgpu_arch: x86_64
-          - os: ubuntu-22.04
-            arch: arm64
-            wgpu_arch: aarch64
-          - os: macos-14
-            arch: arm64
-            wgpu_arch: aarch64
-          - os: windows-2022
-            arch: x86_64
-            wgpu_arch: x86_64
-    runs-on: ${{ matrix.os }}
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: luxcpp/webgpu
-          token: ${{ secrets.LUXCPP_TOKEN }}
-
-      - name: Checkout core headers
-        uses: actions/checkout@v4
-        with:
-          repository: luxcpp/gpu
-          path: gpu-core
-          sparse-checkout: include
-
-      - name: Checkout gpu.cpp
-        uses: actions/checkout@v4
-        with:
-          repository: AnswerDotAI/gpu.cpp
-          path: third_party/gpu.cpp
-
-      - name: Install dependencies (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
-
-      - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: brew install cmake ninja
-
-      - name: Install wgpu-native
-        run: |
-          WGPU_VERSION="v24.0.0"
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            curl -L "https://github.com/gfx-rs/wgpu-native/releases/download/${WGPU_VERSION}/wgpu-windows-${{ matrix.wgpu_arch }}-release.zip" -o wgpu.zip
-            unzip wgpu.zip -d wgpu
-          elif [ "${{ runner.os }}" = "macOS" ]; then
-            curl -L "https://github.com/gfx-rs/wgpu-native/releases/download/${WGPU_VERSION}/wgpu-macos-${{ matrix.wgpu_arch }}-release.zip" -o wgpu.zip
-            unzip wgpu.zip -d wgpu
-          else
-            curl -L "https://github.com/gfx-rs/wgpu-native/releases/download/${WGPU_VERSION}/wgpu-linux-${{ matrix.wgpu_arch }}-release.zip" -o wgpu.zip
-            unzip wgpu.zip -d wgpu
-          fi
-        shell: bash
-
-      - name: Configure
-        run: |
-          cmake -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DLUX_GPU_INCLUDE_DIR=${{ github.workspace }}/gpu-core/include \
-            -DGPUCPP_DIR=${{ github.workspace }}/third_party/gpu.cpp \
-            -DCMAKE_PREFIX_PATH=${{ github.workspace }}/wgpu
-        shell: bash
-
-      - name: Build
-        run: cmake --build build --target luxgpu_backend_webgpu
-
-      - name: Package
-        run: |
-          mkdir -p dist
-          cp build/libluxgpu_backend_webgpu* dist/ || cp build/Release/luxgpu_backend_webgpu* dist/
-          PLATFORM=${{ runner.os == 'Windows' && 'windows' || (runner.os == 'macOS' && 'macos' || 'linux') }}
-          tar -czvf luxgpu-backend-webgpu-${PLATFORM}-${{ matrix.arch }}.tar.gz -C dist .
-        shell: bash
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: luxgpu-backend-webgpu-${{ runner.os == 'Windows' && 'windows' || (runner.os == 'macOS' && 'macos' || 'linux') }}-${{ matrix.arch }}
-          path: luxgpu-backend-webgpu-*.tar.gz
-
-  # ===========================================================================
-  # Create Release
-  # ===========================================================================
   release:
-    needs: [build-core, build-cuda, build-metal, build-webgpu]
+    needs: [build-core]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release == 'true'
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
 
@@ -311,44 +79,24 @@ jobs:
       - name: Generate release notes
         run: |
           cat > RELEASE_NOTES.md << 'EOF'
-          # libaccel ${{ github.ref_name }}
+          # luxgpu-core ${{ github.ref_name }}
 
-          GPU acceleration library for blockchain and ML workloads.
+          Core GPU acceleration library (ABI + loader + CPU backend).
 
           ## Downloads
 
-          ### Core Library (required)
           | Platform | File |
           |----------|------|
           | Linux x86_64 | `luxgpu-core-linux-x86_64.tar.gz` |
-          | Linux arm64 | `luxgpu-core-linux-arm64.tar.gz` |
           | macOS arm64 | `luxgpu-core-macos-arm64.tar.gz` |
           | Windows x86_64 | `luxgpu-core-windows-x86_64.tar.gz` |
 
-          ### Backend Plugins (choose one or more)
-          | Backend | Platform | File |
-          |---------|----------|------|
-          | CUDA | Linux x86_64 | `luxgpu-backend-cuda-linux-x86_64.tar.gz` |
-          | CUDA | Linux arm64 | `luxgpu-backend-cuda-linux-arm64.tar.gz` |
-          | CUDA | Windows x86_64 | `luxgpu-backend-cuda-windows-x86_64.tar.gz` |
-          | Metal | macOS arm64 | `luxgpu-backend-metal-macos-arm64.tar.gz` |
-          | WebGPU | Linux x86_64 | `luxgpu-backend-webgpu-linux-x86_64.tar.gz` |
-          | WebGPU | Linux arm64 | `luxgpu-backend-webgpu-linux-arm64.tar.gz` |
-          | WebGPU | macOS arm64 | `luxgpu-backend-webgpu-macos-arm64.tar.gz` |
-          | WebGPU | Windows x86_64 | `luxgpu-backend-webgpu-windows-x86_64.tar.gz` |
+          ## Backend Plugins
 
-          ## Installation
-
-          ```bash
-          # Extract core
-          tar -xzf luxgpu-core-<platform>.tar.gz -C /usr/local
-
-          # Extract backend plugin
-          tar -xzf luxgpu-backend-<backend>-<platform>.tar.gz -C /usr/local/lib/lux-gpu
-
-          # Set backend path
-          export LUX_GPU_BACKEND_PATH=/usr/local/lib/lux-gpu
-          ```
+          Download backend plugins from their respective repos:
+          - CUDA: [luxcpp/cuda](https://github.com/luxcpp/cuda/releases)
+          - Metal: [luxcpp/metal](https://github.com/luxcpp/metal/releases)
+          - WebGPU: [luxcpp/webgpu](https://github.com/luxcpp/webgpu/releases)
           EOF
 
       - uses: softprops/action-gh-release@v2
