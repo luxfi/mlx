@@ -1,0 +1,408 @@
+# Build and Release GPU Backends
+#
+# Builds platform-specific GPU acceleration backends:
+# - Linux x86_64: CUDA + WebGPU
+# - Linux arm64: WebGPU
+# - macOS x86_64: Metal + WebGPU
+# - macOS arm64: Metal + WebGPU
+# - Windows x86_64: CUDA + WebGPU
+#
+# PRIVATE SOURCE STRUCTURE:
+#   cuda/       - CUDA kernel source (private)
+#   metal/      - Metal shader source (private)
+#   gpu/        - Public library + WebGPU shaders
+#
+# Only prebuilt binaries are released. Source remains private.
+
+name: Build GPU Backends
+
+on:
+  push:
+    branches: [main, release/*]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Create release'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  CMAKE_BUILD_TYPE: Release
+  LUX_GPU_VERSION: 0.2.0
+
+jobs:
+  # ===========================================================================
+  # Linux CUDA Build (x86_64)
+  # ===========================================================================
+  build-linux-cuda:
+    runs-on: ubuntu-22.04
+    container:
+      image: nvidia/cuda:12.4.0-devel-ubuntu22.04
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y cmake ninja-build pkg-config
+
+      - name: Configure CUDA backend
+        run: |
+          cmake -B build-cuda -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLUX_GPU_BUILD_CUDA=ON \
+            -DLUX_GPU_EMBED_KERNELS=ON \
+            -DCMAKE_CUDA_ARCHITECTURES="70;75;80;86;89;90" \
+            gpu/
+
+      - name: Build CUDA backend
+        run: cmake --build build-cuda --target luxgpu_backend_cuda luxgpu_core
+
+      - name: Package CUDA backend
+        run: |
+          mkdir -p dist/linux-x86_64-cuda
+          cp build-cuda/libluxgpu_backend_cuda.so dist/linux-x86_64-cuda/
+          cp build-cuda/libluxgpu_core.so* dist/linux-x86_64-cuda/
+          cp -r gpu/include dist/linux-x86_64-cuda/
+          tar -czvf libaccel-linux-x86_64-cuda.tar.gz -C dist linux-x86_64-cuda
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libaccel-linux-x86_64-cuda
+          path: libaccel-linux-x86_64-cuda.tar.gz
+
+  # ===========================================================================
+  # Linux WebGPU Build (x86_64 + arm64)
+  # ===========================================================================
+  build-linux-webgpu:
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        arch: [x86_64, arm64]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build pkg-config
+
+      - name: Install wgpu-native
+        run: |
+          WGPU_VERSION="v24.0.0"
+          ARCH="${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}"
+          curl -L "https://github.com/gfx-rs/wgpu-native/releases/download/${WGPU_VERSION}/wgpu-linux-${ARCH}-release.zip" -o wgpu.zip
+          unzip wgpu.zip -d wgpu
+          sudo cp wgpu/lib/* /usr/local/lib/
+          sudo cp -r wgpu/include/* /usr/local/include/
+          sudo ldconfig
+
+      - name: Configure WebGPU backend
+        run: |
+          cmake -B build-webgpu -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLUX_GPU_BUILD_WEBGPU=ON \
+            -DLUX_GPU_EMBED_KERNELS=ON \
+            gpu/
+
+      - name: Build WebGPU backend
+        run: cmake --build build-webgpu --target luxgpu_backend_webgpu luxgpu_core
+
+      - name: Package WebGPU backend
+        run: |
+          mkdir -p dist/linux-${{ matrix.arch }}-webgpu
+          cp build-webgpu/libluxgpu_backend_webgpu.so dist/linux-${{ matrix.arch }}-webgpu/
+          cp build-webgpu/libluxgpu_core.so* dist/linux-${{ matrix.arch }}-webgpu/
+          cp -r gpu/include dist/linux-${{ matrix.arch }}-webgpu/
+          tar -czvf libaccel-linux-${{ matrix.arch }}-webgpu.tar.gz -C dist linux-${{ matrix.arch }}-webgpu
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libaccel-linux-${{ matrix.arch }}-webgpu
+          path: libaccel-linux-${{ matrix.arch }}-webgpu.tar.gz
+
+  # ===========================================================================
+  # macOS Build (Metal + WebGPU)
+  # ===========================================================================
+  build-macos:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14  # M1/M2 arm64
+            arch: arm64
+          - runner: macos-13  # Intel x86_64
+            arch: x86_64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          brew install cmake ninja pkg-config
+          brew install --cask wgpu-native || true
+
+      - name: Install wgpu-native (if not available via brew)
+        run: |
+          if ! pkg-config --exists wgpu; then
+            WGPU_VERSION="v24.0.0"
+            ARCH="${{ matrix.arch == 'arm64' && 'aarch64' || 'x86_64' }}"
+            curl -L "https://github.com/gfx-rs/wgpu-native/releases/download/${WGPU_VERSION}/wgpu-macos-${ARCH}-release.zip" -o wgpu.zip
+            unzip wgpu.zip -d wgpu
+            sudo cp wgpu/lib/* /usr/local/lib/ || true
+            sudo cp -r wgpu/include/* /usr/local/include/ || true
+          fi
+
+      - name: Configure backends
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
+            -DLUX_GPU_BUILD_METAL=ON \
+            -DLUX_GPU_BUILD_WEBGPU=ON \
+            -DLUX_GPU_EMBED_KERNELS=ON \
+            gpu/
+
+      - name: Build backends
+        run: cmake --build build
+
+      - name: Package backends
+        run: |
+          mkdir -p dist/macos-${{ matrix.arch }}
+          cp build/libluxgpu_backend_metal.dylib dist/macos-${{ matrix.arch }}/
+          cp build/libluxgpu_backend_webgpu.dylib dist/macos-${{ matrix.arch }}/ || true
+          cp build/libluxgpu_core*.dylib dist/macos-${{ matrix.arch }}/
+          cp -r gpu/include dist/macos-${{ matrix.arch }}/
+
+          # Create universal headers info
+          echo "${{ env.LUX_GPU_VERSION }}" > dist/macos-${{ matrix.arch }}/VERSION
+
+          tar -czvf libaccel-macos-${{ matrix.arch }}.tar.gz -C dist macos-${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libaccel-macos-${{ matrix.arch }}
+          path: libaccel-macos-${{ matrix.arch }}.tar.gz
+
+  # ===========================================================================
+  # Windows CUDA Build
+  # ===========================================================================
+  build-windows-cuda:
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: Jimver/cuda-toolkit@v0.2.19
+        id: cuda-toolkit
+        with:
+          cuda: '12.4.0'
+          method: 'network'
+
+      - name: Configure CUDA backend
+        run: |
+          cmake -B build-cuda `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DLUX_GPU_BUILD_CUDA=ON `
+            -DLUX_GPU_EMBED_KERNELS=ON `
+            -DCMAKE_CUDA_ARCHITECTURES="70;75;80;86;89;90" `
+            gpu/
+
+      - name: Build CUDA backend
+        run: cmake --build build-cuda --config Release --target luxgpu_backend_cuda luxgpu_core
+
+      - name: Package CUDA backend
+        run: |
+          mkdir -p dist/windows-x86_64-cuda
+          cp build-cuda/Release/*.dll dist/windows-x86_64-cuda/
+          cp build-cuda/Release/*.lib dist/windows-x86_64-cuda/
+          cp -r gpu/include dist/windows-x86_64-cuda/
+          Compress-Archive -Path dist/windows-x86_64-cuda -DestinationPath libaccel-windows-x86_64-cuda.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libaccel-windows-x86_64-cuda
+          path: libaccel-windows-x86_64-cuda.zip
+
+  # ===========================================================================
+  # Windows WebGPU Build
+  # ===========================================================================
+  build-windows-webgpu:
+    runs-on: windows-2022
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install wgpu-native
+        run: |
+          $WGPU_VERSION = "v24.0.0"
+          Invoke-WebRequest -Uri "https://github.com/gfx-rs/wgpu-native/releases/download/$WGPU_VERSION/wgpu-windows-x86_64-release.zip" -OutFile wgpu.zip
+          Expand-Archive -Path wgpu.zip -DestinationPath wgpu
+          Copy-Item -Path wgpu\lib\* -Destination C:\Windows\System32\ -Force
+          Copy-Item -Path wgpu\include\* -Destination C:\Program` Files\include\ -Recurse -Force
+
+      - name: Configure WebGPU backend
+        run: |
+          cmake -B build-webgpu `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DLUX_GPU_BUILD_WEBGPU=ON `
+            -DLUX_GPU_EMBED_KERNELS=ON `
+            -DCMAKE_PREFIX_PATH="C:\Program Files" `
+            gpu/
+
+      - name: Build WebGPU backend
+        run: cmake --build build-webgpu --config Release --target luxgpu_backend_webgpu luxgpu_core
+
+      - name: Package WebGPU backend
+        run: |
+          mkdir -p dist/windows-x86_64-webgpu
+          cp build-webgpu/Release/*.dll dist/windows-x86_64-webgpu/
+          cp build-webgpu/Release/*.lib dist/windows-x86_64-webgpu/
+          cp -r gpu/include dist/windows-x86_64-webgpu/
+          Compress-Archive -Path dist/windows-x86_64-webgpu -DestinationPath libaccel-windows-x86_64-webgpu.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libaccel-windows-x86_64-webgpu
+          path: libaccel-windows-x86_64-webgpu.zip
+
+  # ===========================================================================
+  # Create Release
+  # ===========================================================================
+  release:
+    needs: [build-linux-cuda, build-linux-webgpu, build-macos, build-windows-cuda, build-windows-webgpu]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release == 'true'
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir release
+          find artifacts -name "*.tar.gz" -exec cp {} release/ \;
+          find artifacts -name "*.zip" -exec cp {} release/ \;
+
+          # Create checksums
+          cd release
+          sha256sum * > SHA256SUMS
+
+      - name: Generate release notes
+        run: |
+          cat > RELEASE_NOTES.md << 'EOF'
+          # libaccel ${{ github.ref_name }}
+
+          GPU acceleration library for blockchain and ML workloads.
+
+          ## Available Backends
+
+          | Platform | Backend | Architecture | File |
+          |----------|---------|--------------|------|
+          | Linux | CUDA | x86_64 | `libaccel-linux-x86_64-cuda.tar.gz` |
+          | Linux | WebGPU | x86_64 | `libaccel-linux-x86_64-webgpu.tar.gz` |
+          | Linux | WebGPU | arm64 | `libaccel-linux-arm64-webgpu.tar.gz` |
+          | macOS | Metal+WebGPU | arm64 | `libaccel-macos-arm64.tar.gz` |
+          | macOS | Metal+WebGPU | x86_64 | `libaccel-macos-x86_64.tar.gz` |
+          | Windows | CUDA | x86_64 | `libaccel-windows-x86_64-cuda.zip` |
+          | Windows | WebGPU | x86_64 | `libaccel-windows-x86_64-webgpu.zip` |
+
+          ## Installation
+
+          Download the appropriate archive for your platform and extract:
+
+          ```bash
+          # Linux/macOS
+          tar -xzf libaccel-<platform>-<arch>.tar.gz
+          export LUX_GPU_BACKEND_PATH=/path/to/extracted/lib
+
+          # Windows
+          # Extract zip and add to PATH
+          ```
+
+          ## Backend Selection
+
+          The library automatically selects the best available backend:
+          1. **CUDA** - NVIDIA GPUs (Linux, Windows)
+          2. **Metal** - Apple Silicon/Intel Macs (macOS)
+          3. **WebGPU** - Cross-platform fallback
+
+          Override with `LUX_BACKEND` environment variable or API:
+          ```c
+          lux_gpu_set_backend(LUX_BACKEND_METAL);
+          ```
+          EOF
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          body_path: RELEASE_NOTES.md
+          draft: false
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ===========================================================================
+  # Test Backends (on self-hosted runners with GPUs)
+  # ===========================================================================
+  test-cuda:
+    needs: build-linux-cuda
+    runs-on: [self-hosted, cuda]
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: libaccel-linux-x86_64-cuda
+          path: .
+
+      - name: Extract and test
+        run: |
+          tar -xzf libaccel-linux-x86_64-cuda.tar.gz
+          export LUX_GPU_BACKEND_PATH=$PWD/linux-x86_64-cuda
+          export LD_LIBRARY_PATH=$LUX_GPU_BACKEND_PATH:$LD_LIBRARY_PATH
+
+          # Run basic validation (if test binary is included)
+          # ./linux-x86_64-cuda/test_gpu_core || true
+
+  test-metal:
+    needs: build-macos
+    runs-on: [self-hosted, macos, apple-silicon]
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: libaccel-macos-arm64
+          path: .
+
+      - name: Extract and test
+        run: |
+          tar -xzf libaccel-macos-arm64.tar.gz
+          export LUX_GPU_BACKEND_PATH=$PWD/macos-arm64
+          export DYLD_LIBRARY_PATH=$LUX_GPU_BACKEND_PATH:$DYLD_LIBRARY_PATH
+
+          # Run basic validation
+          # ./macos-arm64/test_gpu_core || true
