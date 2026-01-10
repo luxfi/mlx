@@ -39,11 +39,16 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install cmake ninja
 
-      - name: Configure
+      - name: Configure (Unix)
+        if: runner.os != 'Windows'
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
       - name: Build
-        run: cmake --build build
+        run: cmake --build build --config Release
 
       - name: Package
         run: |
